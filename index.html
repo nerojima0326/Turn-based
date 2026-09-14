@@ -1,0 +1,1334 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>리버스: 1999 전투 (승리 UI 탑재)</title>
+  <style>
+    :root {
+      --bg-dark: #0d110f;
+      --gold: #d4af37;
+      --gold-light: #f5e29d;
+      --gold-bright: #fde047;
+      --moxie-empty: #1a221e;
+      --moxie-filled: #f59e0b;
+      --hp-green: #34d399;
+      --hp-enemy: #ef4444;
+      --border-subtle: rgba(212, 175, 55, 0.25);
+      --crimson: #dc2626;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; font-family: "Georgia", "Pretendard", serif; }
+    body {
+      background: #080a09;
+      color: #e2e8f0;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    /* 상단 HUD */
+    #top-hud {
+      position: absolute;
+      top: 0; left: 0; width: 100%;
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      z-index: 30;
+      pointer-events: none;
+    }
+    .top-left-status {
+      font-size: 0.85rem;
+      color: #cbd5e1;
+      line-height: 1.5;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+    }
+    .top-left-status .accent { color: var(--gold-light); font-weight: bold; }
+    .enemy-info-btn {
+      margin-top: 4px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.75rem;
+      color: #94a3b8;
+    }
+
+    .cheat-btns { pointer-events: auto; display: flex; gap: 8px; }
+    .btn-cheat {
+      padding: 4px 10px;
+      background: #1e2923;
+      border: 1px solid var(--gold);
+      color: var(--gold-light);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.72rem;
+    }
+
+    /* 전장 */
+    #battlefield {
+      flex: 1;
+      position: relative;
+      background: radial-gradient(ellipse at 50% 40%, #17221b 0%, #0d1410 60%, #050806 100%);
+      display: flex;
+      align-items: flex-end;
+      padding-bottom: 36px;
+      justify-content: space-around;
+      overflow: hidden;
+    }
+    #battlefield::after {
+      content: "";
+      position: absolute;
+      bottom: 0; left: 0; width: 100%; height: 160px;
+      background: linear-gradient(to top, rgba(8, 12, 10, 0.95), transparent);
+      pointer-events: none;
+      z-index: 3;
+    }
+
+    #fx-flash-layer {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 20;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .team-container {
+      display: flex;
+      gap: 65px;
+      align-items: flex-end;
+      position: relative;
+      z-index: 5;
+    }
+
+    .unit {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      will-change: transform;
+    }
+    .unit.hit { animation: hitShake 0.3s; }
+
+    .unit-shadow {
+      position: absolute;
+      bottom: -6px;
+      width: 80px; height: 16px;
+      background: radial-gradient(ellipse, rgba(0,0,0,0.7) 0%, transparent 70%);
+      z-index: 1;
+    }
+    .unit-body {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      animation: floatIdle 3.5s ease-in-out infinite alternate;
+    }
+    .sprite { font-size: 4rem; filter: drop-shadow(0 0 10px rgba(0,0,0,0.6)); }
+
+    /* 머리 위 HUD */
+    .overhead-hud {
+      position: absolute;
+      top: -42px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      width: 84px;
+      z-index: 10;
+    }
+    .hud-meta-row { display: flex; align-items: center; gap: 4px; }
+    .afflatus-icon {
+      width: 14px; height: 14px;
+      border: 1px solid var(--gold);
+      transform: rotate(45deg);
+      background: #1e2923;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .afflatus-icon span { transform: rotate(-45deg); font-size: 0.55rem; color: var(--gold-light); }
+    .buff-icon { font-size: 0.65rem; }
+
+    .hp-track {
+      width: 100%; height: 4px;
+      background: rgba(0, 0, 0, 0.7);
+      border-radius: 2px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+    .hp-fill { height: 100%; width: 100%; transition: width 0.3s ease; }
+    .hp-fill.ally { background: var(--hp-green); }
+    .hp-fill.foe { background: var(--hp-enemy); }
+
+    .moxie-row { display: flex; gap: 3px; margin-top: 1px; }
+    .moxie-diamond {
+      width: 7px; height: 7px;
+      background: var(--moxie-empty);
+      border: 1px solid rgba(212, 175, 55, 0.4);
+      transform: rotate(45deg);
+      transition: all 0.2s;
+    }
+    .moxie-diamond.active {
+      background: var(--moxie-filled);
+      border-color: #fef08a;
+      box-shadow: 0 0 6px var(--moxie-filled);
+    }
+    .moxie-diamond.full-charge {
+      background: #fbbf24;
+      border-color: #fff;
+      box-shadow: 0 0 10px #fbbf24, 0 0 16px #f59e0b;
+      animation: moxiePulse 0.8s infinite alternate;
+    }
+    @keyframes moxiePulse {
+      0% { transform: rotate(45deg) scale(1); filter: brightness(1); }
+      100% { transform: rotate(45deg) scale(1.3); filter: brightness(1.5); }
+    }
+
+    /* 화면 분할 컷씬 */
+    #cutscene-layer {
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 1000;
+      display: none;
+    }
+    .screen-split-top, .screen-split-bottom {
+      position: absolute;
+      width: 100%; height: 100%;
+      background: rgba(8, 10, 12, 0.95);
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .screen-split-top { clip-path: polygon(0 0, 100% 0, 100% 42%, 0 62%); }
+    .screen-split-bottom { clip-path: polygon(0 62%, 100% 42%, 100% 100%, 0 100%); }
+    #cut-line {
+      position: absolute;
+      top: 52%; left: -20%;
+      width: 140%; height: 4px;
+      background: #ffffff;
+      box-shadow: 0 0 20px #fff, 0 0 40px var(--crimson), 0 0 60px var(--gold);
+      transform: rotate(-11deg) scaleX(0);
+      transform-origin: center;
+      transition: transform 0.2s ease-out;
+      z-index: 10;
+    }
+    .shard {
+      position: absolute;
+      background: rgba(254, 240, 138, 0.75);
+      border: 1px solid #fff;
+      box-shadow: 0 0 10px rgba(245, 158, 11, 0.8);
+      pointer-events: none;
+    }
+    #banner-container {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%) scale(2.2);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      z-index: 20;
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.1, 0.9, 0.2, 1.2);
+    }
+    .ego-type {
+      font-size: 0.85rem;
+      font-weight: 900;
+      letter-spacing: 6px;
+      color: var(--crimson);
+      background: #000;
+      padding: 3px 14px;
+      border: 1px solid var(--crimson);
+      margin-bottom: 8px;
+    }
+    .skill-title {
+      font-size: 2.6rem;
+      font-weight: 900;
+      color: #fff;
+      letter-spacing: 4px;
+      text-shadow: 0 0 20px var(--gold), 0 0 40px #000;
+      white-space: nowrap;
+    }
+    .skill-sub {
+      font-size: 0.85rem;
+      color: #94a3b8;
+      letter-spacing: 3px;
+      margin-top: 4px;
+    }
+    .screen-shake { animation: screenShakeAnim 0.4s ease-in-out; }
+    @keyframes screenShakeAnim {
+      0%, 100% { transform: translate(0, 0); }
+      20% { transform: translate(-12px, 8px); }
+      40% { transform: translate(12px, -8px); }
+      60% { transform: translate(-8px, -6px); }
+      80% { transform: translate(8px, 6px); }
+    }
+
+    /* 시각 이펙트 (VFX) */
+    .vfx-container {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 25;
+      overflow: hidden;
+    }
+    .fx-flame-burst {
+      position: absolute;
+      width: 150px; height: 150px;
+      background: radial-gradient(circle, #f97316 0%, #ea580c 50%, transparent 75%);
+      border-radius: 50%;
+      transform: translate(-50%, -50%) scale(0.2);
+      animation: animFlame 0.4s ease-out forwards;
+    }
+    @keyframes animFlame {
+      0% { transform: translate(-50%, -50%) scale(0.2); opacity: 1; }
+      100% { transform: translate(-50%, -50%) scale(1.6); opacity: 0; }
+    }
+    .fx-holy-pillar {
+      position: absolute;
+      width: 70px; height: 500px;
+      background: linear-gradient(to bottom, transparent, rgba(254, 240, 138, 0.85), #f59e0b, transparent);
+      box-shadow: 0 0 35px #f59e0b;
+      transform: translate(-50%, -70%) scaleY(0);
+      animation: animHoly 0.5s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+    }
+    @keyframes animHoly {
+      0% { transform: translate(-50%, -70%) scaleY(0); opacity: 0.2; }
+      50% { transform: translate(-50%, -70%) scaleY(1); opacity: 1; }
+      100% { transform: translate(-50%, -70%) scaleY(1.1); opacity: 0; }
+    }
+    .fx-slash-arc {
+      position: absolute;
+      width: 220px; height: 8px;
+      background: linear-gradient(90deg, transparent, #ffffff, #67e8f9, transparent);
+      box-shadow: 0 0 15px #67e8f9;
+      transform: translate(-50%, -50%) rotate(-40deg) scaleX(0);
+      animation: animSlash 0.35s ease-out forwards;
+    }
+    @keyframes animSlash {
+      0% { transform: translate(-50%, -50%) rotate(-40deg) scaleX(0); opacity: 1; }
+      50% { transform: translate(-50%, -50%) rotate(-40deg) scaleX(1.4); opacity: 1; }
+      100% { transform: translate(-50%, -50%) rotate(-40deg) scaleX(1.8); opacity: 0; }
+    }
+    .fx-pierce-cross {
+      position: absolute;
+      width: 160px; height: 160px;
+      border-left: 4px solid #38bdf8;
+      border-top: 4px solid #fff;
+      box-shadow: 0 0 20px #38bdf8;
+      transform: translate(-50%, -50%) rotate(45deg) scale(0.2);
+      animation: animCross 0.35s ease-out forwards;
+    }
+    @keyframes animCross {
+      0% { transform: translate(-50%, -50%) rotate(45deg) scale(0.2); opacity: 1; }
+      100% { transform: translate(-50%, -50%) rotate(45deg) scale(1.3); opacity: 0; }
+    }
+    .fx-ult-explosion {
+      position: absolute;
+      width: 260px; height: 260px;
+      border: 3px double #fde047;
+      border-radius: 50%;
+      box-shadow: 0 0 45px #eab308;
+      transform: translate(-50%, -50%) scale(0.1);
+      animation: animExplosion 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    @keyframes animExplosion {
+      0% { transform: translate(-50%, -50%) scale(0.1) rotate(0deg); opacity: 1; }
+      100% { transform: translate(-50%, -50%) scale(1.6) rotate(180deg); opacity: 0; }
+    }
+
+    /* 하단 조작 덱 */
+    #deck-panel {
+      background: linear-gradient(to top, rgba(7, 10, 8, 0.98), rgba(13, 18, 15, 0.95));
+      border-top: 1px solid var(--border-subtle);
+      padding: 12px 24px;
+      position: relative;
+      z-index: 30;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    #action-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .slot-group { display: flex; align-items: center; gap: 10px; }
+    .action-slot {
+      width: 72px; height: 96px;
+      border: 1px dashed var(--border-subtle);
+      border-radius: 4px;
+      background: rgba(0, 0, 0, 0.4);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      color: #64748b;
+      position: relative;
+      transition: all 0.2s;
+    }
+    .action-slot.filled {
+      border: 1px solid var(--gold);
+      background: #151d18;
+      color: #fff;
+    }
+    .action-slot.ult-filled {
+      border: 1px solid #fde047;
+      background: radial-gradient(circle, #3b2c05, #151d18);
+      box-shadow: 0 0 12px rgba(245, 158, 11, 0.5);
+      color: #fef08a;
+    }
+    .action-slot.skipped {
+      background: repeating-linear-gradient(
+        -45deg,
+        rgba(35, 25, 25, 0.9),
+        rgba(35, 25, 25, 0.9) 8px,
+        rgba(15, 10, 10, 0.95) 8px,
+        rgba(15, 10, 10, 0.95) 16px
+      );
+      border: 1px solid rgba(239, 68, 68, 0.6);
+      color: #f87171;
+      font-weight: bold;
+      letter-spacing: 2px;
+      font-size: 0.8rem;
+    }
+
+    .btn-action {
+      background: #1a241f;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #e2e8f0;
+      padding: 6px 14px;
+      font-size: 0.8rem;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .btn-action.primary {
+      background: linear-gradient(135deg, #7c6217, #3d2f07);
+      border-color: var(--gold);
+      font-weight: bold;
+      color: var(--gold-light);
+    }
+    .btn-action:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .deck-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      min-height: 135px;
+    }
+    #hand-cards { display: flex; gap: 10px; }
+
+    .card-item {
+      width: 88px; height: 126px;
+      background: linear-gradient(145deg, #17211b, #0d1310);
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      padding: 6px 5px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      cursor: pointer;
+      position: relative;
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+    }
+    .card-item:hover { transform: translateY(-8px); border-color: var(--gold-light); }
+    .card-item.selected {
+      transform: translateY(-12px);
+      border-color: var(--gold-light);
+      box-shadow: 0 0 12px rgba(212, 175, 55, 0.5);
+    }
+    .card-item.ultimate-card {
+      background: radial-gradient(circle at 50% 20%, #451a03 0%, #17211b 80%);
+      border: 1.5px solid #fde047;
+      box-shadow: 0 0 14px rgba(245, 158, 11, 0.6);
+      animation: cardGlow 1.8s infinite alternate;
+    }
+    @keyframes cardGlow {
+      0% { box-shadow: 0 0 8px rgba(245, 158, 11, 0.4); }
+      100% { box-shadow: 0 0 18px rgba(253, 224, 71, 0.8); }
+    }
+
+    .card-stars {
+      font-size: 0.7rem;
+      color: var(--gold);
+      text-align: right;
+      letter-spacing: 2px;
+      height: 14px;
+    }
+    .card-glyph { font-size: 1.8rem; text-align: center; margin: 2px 0; }
+    .card-title { font-size: 0.68rem; font-weight: bold; text-align: center; color: #e2e8f0; line-height: 1.2; }
+    .card-owner-tag {
+      font-size: 0.58rem;
+      color: var(--gold-light);
+      text-align: center;
+      opacity: 0.85;
+    }
+
+    #card-detail-box {
+      width: 280px;
+      background: rgba(10, 14, 12, 0.95);
+      border: 1px solid rgba(212, 175, 55, 0.4);
+      padding: 10px 14px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      line-height: 1.4;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.8);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .detail-name { font-size: 0.85rem; font-weight: bold; color: var(--gold-light); }
+    .detail-owner { font-size: 0.7rem; color: #94a3b8; }
+    .detail-desc { color: #cbd5e1; font-size: 0.72rem; }
+
+    @keyframes floatIdle { 0% { transform: translateY(0); } 100% { transform: translateY(-5px); } }
+    @keyframes hitShake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-8px); }
+      75% { transform: translateX(8px); }
+    }
+    .dmg-text {
+      position: absolute;
+      font-size: 1.6rem;
+      font-weight: bold;
+      color: #f87171;
+      animation: dmgPop 0.8s forwards ease-out;
+      pointer-events: none;
+      z-index: 100;
+      text-shadow: 0 0 6px #000;
+    }
+    @keyframes dmgPop {
+      0% { opacity: 0; transform: translateY(0) scale(0.7); }
+      30% { opacity: 1; transform: translateY(-16px) scale(1.1); }
+      100% { opacity: 0; transform: translateY(-40px) scale(1); }
+    }
+
+    /* ================= 9. 승리(VICTORY) UI ================= */
+    #victory-modal {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(5, 8, 6, 0.88);
+      backdrop-filter: blur(8px);
+      z-index: 2000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.6s ease;
+    }
+    #victory-modal.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .victory-card {
+      width: 440px;
+      background: linear-gradient(160deg, #161f18 0%, #0c110e 100%);
+      border: 1px solid var(--gold);
+      box-shadow: 0 0 35px rgba(212, 175, 55, 0.35), inset 0 0 20px rgba(0, 0, 0, 0.8);
+      border-radius: 6px;
+      padding: 36px 28px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      transform: scale(0.9);
+      transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    #victory-modal.show .victory-card {
+      transform: scale(1);
+    }
+    .vic-subtitle {
+      font-size: 0.8rem;
+      letter-spacing: 5px;
+      color: #94a3b8;
+      margin-bottom: 6px;
+    }
+    .vic-title {
+      font-size: 3.2rem;
+      font-weight: 900;
+      letter-spacing: 6px;
+      color: var(--gold-light);
+      text-shadow: 0 0 25px rgba(245, 226, 157, 0.6);
+      margin-bottom: 8px;
+    }
+    .vic-divider {
+      width: 80%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+      margin-bottom: 24px;
+    }
+    .vic-stats {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 30px;
+      font-size: 0.9rem;
+    }
+    .vic-stat-row {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px dashed rgba(255, 255, 255, 0.1);
+      padding-bottom: 6px;
+      color: #cbd5e1;
+    }
+    .vic-stat-val {
+      font-weight: bold;
+      color: var(--gold-light);
+    }
+    .btn-vic-restart {
+      background: linear-gradient(135deg, #7c6217, #3d2f07);
+      border: 1px solid var(--gold);
+      color: #fff;
+      font-weight: bold;
+      font-size: 0.95rem;
+      padding: 12px 36px;
+      border-radius: 4px;
+      cursor: pointer;
+      letter-spacing: 2px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.6);
+      transition: all 0.2s;
+    }
+    .btn-vic-restart:hover {
+      background: linear-gradient(135deg, #a38221, #57430b);
+      transform: translateY(-2px);
+      box-shadow: 0 0 15px rgba(212, 175, 55, 0.5);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 상단 HUD -->
+  <div id="top-hud">
+    <div class="top-left-status">
+      <div>라운드: <span class="accent" id="round-txt">1/2</span> &nbsp;&nbsp; 턴: <span class="accent" id="turn-txt">1/20</span></div>
+      <div class="enemy-info-btn">적군 정보 🔍</div>
+    </div>
+    <div class="cheat-btns">
+      <button class="btn-cheat" onclick="cheatMoxie('candle')">⚡ 촛불 열정 5개</button>
+      <button class="btn-cheat" onclick="cheatMoxie('sword')">⚡ 칼 열정 5개</button>
+    </div>
+  </div>
+
+  <!-- 메인 전장 -->
+  <div id="battlefield">
+    <div id="fx-flash-layer"></div>
+    <div class="vfx-container" id="vfx-container"></div>
+
+    <!-- 적군 진영 -->
+    <div class="team-container">
+      <div class="unit" id="unit-enemy">
+        <div class="overhead-hud">
+          <div class="hud-meta-row">
+            <div class="afflatus-icon"><span>靈</span></div>
+            <span class="buff-icon">⚔️</span>
+          </div>
+          <div class="hp-track"><div class="hp-fill foe" id="hp-enemy"></div></div>
+          <div class="moxie-row" id="moxie-enemy"></div>
+        </div>
+        <div class="unit-body"><div class="sprite">🪼</div></div>
+        <div class="unit-shadow"></div>
+      </div>
+    </div>
+
+    <!-- 아군 진영 -->
+    <div class="team-container">
+      <div class="unit" id="unit-candle">
+        <div class="overhead-hud">
+          <div class="hud-meta-row">
+            <div class="afflatus-icon"><span>岩</span></div>
+            <span class="buff-icon" style="color: #60a5fa;">🛡️</span>
+          </div>
+          <div class="hp-track"><div class="hp-fill ally" id="hp-candle"></div></div>
+          <div class="moxie-row" id="moxie-candle"></div>
+        </div>
+        <div class="unit-body"><div class="sprite">🕯️</div></div>
+        <div class="unit-shadow"></div>
+      </div>
+
+      <div class="unit" id="unit-sword">
+        <div class="overhead-hud">
+          <div class="hud-meta-row">
+            <div class="afflatus-icon"><span>星</span></div>
+            <span class="buff-icon" style="color: #f87171;">🗡️</span>
+          </div>
+          <div class="hp-track"><div class="hp-fill ally" id="hp-sword"></div></div>
+          <div class="moxie-row" id="moxie-sword"></div>
+        </div>
+        <div class="unit-body"><div class="sprite">🗡️</div></div>
+        <div class="unit-shadow"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 화면 분할 E.G.O 컷씬 레이어 -->
+  <div id="cutscene-layer">
+    <div class="screen-split-top" id="split-top"></div>
+    <div class="screen-split-bottom" id="split-bottom"></div>
+    <div id="cut-line"></div>
+    <div id="banner-container">
+      <div class="ego-type" id="cutscene-owner">E.G.O :: AWAKENING</div>
+      <div class="skill-title" id="cutscene-title">규율과 심판</div>
+      <div class="skill-sub">ULTIMATE COMMANDMENT</div>
+    </div>
+  </div>
+
+  <!-- 승리(VICTORY) UI 모달 -->
+  <div id="victory-modal">
+    <div class="victory-card">
+      <div class="vic-subtitle">STAGE COMPLETE</div>
+      <div class="vic-title">VICTORY</div>
+      <div class="vic-divider"></div>
+      <div class="vic-stats">
+        <div class="vic-stat-row">
+          <span>소요 턴수</span>
+          <span class="vic-stat-val" id="vic-turn-val">1 턴</span>
+        </div>
+        <div class="vic-stat-row">
+          <span>생존 아군</span>
+          <span class="vic-stat-val" id="vic-allies-val">촛불, 칼</span>
+        </div>
+        <div class="vic-stat-row">
+          <span>전투 평가</span>
+          <span class="vic-stat-val" style="color: var(--gold-bright);">EXCELLENT ★★★</span>
+        </div>
+      </div>
+      <button class="btn-vic-restart" onclick="location.reload()">전투 종료 / 재도전</button>
+    </div>
+  </div>
+
+  <!-- 하단 조작 덱 -->
+  <div id="deck-panel">
+    <div id="action-bar">
+      <div class="slot-group">
+        <span style="font-size: 0.75rem; color: var(--gold);">행동:</span>
+        <div class="action-slot" id="slot-0">I</div>
+        <div class="action-slot" id="slot-1">II</div>
+        <div class="action-slot" id="slot-2">III</div>
+      </div>
+
+      <div>
+        <button class="btn-action" onclick="resetSlots()">초기화</button>
+        <button class="btn-action primary" id="execute-btn" onclick="executeTurnAction()" disabled>전투 실행</button>
+      </div>
+    </div>
+
+    <div class="deck-content">
+      <div id="hand-cards"></div>
+      <div id="card-detail-box">
+        <div class="detail-name" id="tip-name">스킬을 선택하세요</div>
+        <div class="detail-owner" id="tip-owner">시전자: -</div>
+        <div class="detail-desc" id="tip-desc">카드를 선택해 대미지 배율과 효과를 확인하세요.</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ================= 1. 파티 & 적군 데이터 ================= */
+    const allies = {
+      candle: { id: 'candle', name: '촛불', hp: 1500, maxHp: 1500, moxie: 0, selector: '#unit-candle' },
+      sword: { id: 'sword', name: '칼', hp: 1300, maxHp: 1300, moxie: 0, selector: '#unit-sword' }
+    };
+    const enemy = { name: '해파리', hp: 3800, maxHp: 3800, moxie: 1, atk: 220, selector: '#unit-enemy' };
+
+    const MAX_AP = 3;
+    let currentAP = MAX_AP;
+    let turnCount = 1;
+    let isBattling = false;
+
+    /* ================= 2. 캐릭터별 스킬 도감 ================= */
+    const skillCatalog = [
+      {
+        id: 'c_flame', owner: 'candle', ownerName: '촛불', name: '정화의 불꽃', glyph: '🔥',
+        baseRate: 160, type: 'Attack', vfx: 'flame', motion: 'hover_forward',
+        descFormat: (rate) => `전방으로 떠올라 ${rate}%의 현실 화염 피해를 입힙니다.`
+      },
+      {
+        id: 'c_light', owner: 'candle', ownerName: '촛불', name: '등불의 가호', glyph: '✨',
+        baseRate: 140, type: 'Attack', vfx: 'light', motion: 'ascend',
+        descFormat: (rate) => `공중으로 솟구쳐 ${rate}%의 정신 피해를 주고 열정을 추가 충전합니다.`
+      },
+      {
+        id: 's_slash', owner: 'sword', ownerName: '칼', name: '쾌검일섬', glyph: '⚔️',
+        baseRate: 180, type: 'Attack', vfx: 'slash', motion: 'dash',
+        descFormat: (rate) => `적 앞으로 신속히 돌진하여 ${rate}%의 참격 피해를 입힙니다.`
+      },
+      {
+        id: 's_pierce', owner: 'sword', ownerName: '칼', name: '칼날의 궤적', glyph: '🗡️',
+        baseRate: 150, type: 'Attack', vfx: 'pierce', motion: 'leap_thrust',
+        descFormat: (rate) => `공중으로 도약 후 적에게 내리꽂으며 ${rate}%의 피해를 입힙니다.`
+      }
+    ];
+
+    const ultimateCatalog = {
+      candle: {
+        id: 'ult_candle', owner: 'candle', ownerName: '촛불', name: '규율과 심판', glyph: '📖',
+        damageRate: 650, isUlt: true, rank: 3, vfx: 'ult_explosion', motion: 'ult_ascend',
+        desc: '[최종 술식] 상공으로 높이 승천하여 650%의 막대한 현실 피해를 심판합니다.'
+      },
+      sword: {
+        id: 'ult_sword', owner: 'sword', ownerName: '칼', name: '무형의 연격', glyph: '⚡',
+        damageRate: 700, isUlt: true, rank: 3, vfx: 'ult_explosion', motion: 'ult_dash',
+        desc: '[최종 술식] 적의 코앞으로 순간 이동하듯 돌진해 700%의 절멸적 난무를 펼칩니다.'
+      }
+    };
+
+    let hand = [];
+    let actionQueue = [];
+    let selectedIdx = null;
+
+    function initBattle() {
+      fillHand();
+      updateAllUI();
+    }
+
+    function getSkillRate(baseRate, rank) {
+      if (rank === 1) return baseRate;
+      if (rank === 2) return Math.round(baseRate * 1.5);
+      return Math.round(baseRate * 2.5);
+    }
+
+    function fillHand() {
+      checkAndSpawnUltimates();
+
+      while (hand.length < 6) {
+        const item = skillCatalog[Math.floor(Math.random() * skillCatalog.length)];
+        hand.push({
+          uid: Math.random().toString(36).substr(2, 7),
+          id: item.id,
+          owner: item.owner,
+          ownerName: item.ownerName,
+          name: item.name,
+          glyph: item.glyph,
+          baseRate: item.baseRate,
+          type: item.type,
+          vfx: item.vfx,
+          motion: item.motion,
+          descFormat: item.descFormat,
+          rank: 1
+        });
+      }
+    }
+
+    function checkAndSpawnUltimates() {
+      ['candle', 'sword'].forEach(ownerKey => {
+        const owner = allies[ownerKey];
+        const hasUltInHand = hand.some(c => c.isUlt && c.owner === ownerKey);
+        const hasUltInQueue = actionQueue.some(a => a.card && a.card.isUlt && a.card.owner === ownerKey);
+
+        if (owner.moxie >= 5 && !hasUltInHand && !hasUltInQueue) {
+          if (hand.length >= 6) hand.pop();
+          hand.unshift({
+            uid: 'ult_' + ownerKey + '_' + Date.now(),
+            ...ultimateCatalog[ownerKey]
+          });
+        }
+      });
+    }
+
+    function cheatMoxie(ownerKey) {
+      allies[ownerKey].moxie = 5;
+      checkAndSpawnUltimates();
+      updateAllUI();
+    }
+
+    /* ================= 3. 캐릭터 돌진 및 모션 ================= */
+    async function performCharacterMotion(ownerKey, motionType) {
+      const actor = document.querySelector(allies[ownerKey].selector);
+      const enemyEl = document.querySelector(enemy.selector);
+      if (!actor || !enemyEl) return async () => {};
+
+      const actorRect = actor.getBoundingClientRect();
+      const enemyRect = enemyEl.getBoundingClientRect();
+      const toEnemyX = (enemyRect.left + enemyRect.width + 60) - actorRect.left;
+
+      if (motionType === 'dash') {
+        actor.style.transition = 'transform 0.22s cubic-bezier(0.1, 0.9, 0.2, 1)';
+        actor.style.transform = `translate(${toEnemyX}px, -10px) rotate(-20deg)`;
+        await sleep(220);
+        return async () => {
+          actor.style.transition = 'transform 0.3s ease-out';
+          actor.style.transform = 'translate(0px, 0px)';
+          await sleep(260);
+        };
+      } else if (motionType === 'leap_thrust') {
+        actor.style.transition = 'transform 0.28s cubic-bezier(0.15, 0.7, 0.3, 1)';
+        actor.style.transform = `translate(${toEnemyX + 25}px, -55px) rotate(-35deg) scale(1.1)`;
+        await sleep(280);
+        return async () => {
+          actor.style.transition = 'transform 0.32s ease-out';
+          actor.style.transform = 'translate(0px, 0px)';
+          await sleep(280);
+        };
+      } else if (motionType === 'ascend') {
+        actor.style.transition = 'transform 0.35s ease-out';
+        actor.style.transform = 'translateY(-95px) scale(1.2)';
+        await sleep(350);
+        return async () => {
+          actor.style.transition = 'transform 0.4s ease-in-out';
+          actor.style.transform = 'translate(0px, 0px)';
+          await sleep(300);
+        };
+      } else if (motionType === 'hover_forward') {
+        actor.style.transition = 'transform 0.3s ease-out';
+        actor.style.transform = 'translate(-100px, -45px) scale(1.12)';
+        await sleep(300);
+        return async () => {
+          actor.style.transition = 'transform 0.35s ease-in-out';
+          actor.style.transform = 'translate(0px, 0px)';
+          await sleep(260);
+        };
+      } else if (motionType === 'ult_ascend') {
+        actor.style.transition = 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)';
+        actor.style.transform = 'translateY(-135px) scale(1.4)';
+        await sleep(500);
+        return async () => {
+          actor.style.transition = 'transform 0.45s ease-out';
+          actor.style.transform = 'translate(0px, 0px)';
+          await sleep(350);
+        };
+      } else if (motionType === 'ult_dash') {
+        actor.style.transition = 'transform 0.18s cubic-bezier(0.1, 1, 0.2, 1)';
+        actor.style.transform = `translate(${toEnemyX - 15}px, -20px) scale(1.3) rotate(-25deg)`;
+        await sleep(180);
+        return async () => {
+          actor.style.transition = 'transform 0.32s ease-out';
+          actor.style.transform = 'translate(0px, 0px)';
+          await sleep(280);
+        };
+      }
+      return async () => {};
+    }
+
+    /* ================= 4. 카드 조작 ================= */
+    function onCardClick(idx) {
+      if (isBattling || currentAP <= 0) return;
+
+      const card = hand[idx];
+      updateDetailTooltip(card);
+
+      if (selectedIdx === null) {
+        selectedIdx = idx;
+        renderHand();
+        return;
+      }
+
+      if (selectedIdx === idx) {
+        actionQueue.push({ type: 'play', card: card });
+        hand.splice(idx, 1);
+        currentAP--;
+        selectedIdx = null;
+        updateAllUI();
+        return;
+      }
+
+      const firstCard = hand[selectedIdx];
+      if (!firstCard.isUlt && !card.isUlt && firstCard.id === card.id && firstCard.rank === card.rank && card.rank < 3) {
+        card.rank += 1;
+        hand.splice(selectedIdx, 1);
+        currentAP--;
+
+        actionQueue.push({ type: 'skip' });
+        gainMoxie(card.owner, 1);
+
+        selectedIdx = null;
+        updateAllUI();
+      } else {
+        selectedIdx = idx;
+        renderHand();
+      }
+    }
+
+    function gainMoxie(ownerKey, val) {
+      if (!allies[ownerKey]) return;
+      allies[ownerKey].moxie = Math.min(5, allies[ownerKey].moxie + val);
+      checkAndSpawnUltimates();
+    }
+
+    function resetSlots() {
+      if (isBattling || actionQueue.length === 0) return;
+      actionQueue.forEach(act => {
+        if (act.type === 'play') hand.push(act.card);
+      });
+      actionQueue = [];
+      currentAP = MAX_AP;
+      selectedIdx = null;
+      fillHand();
+      updateAllUI();
+    }
+
+    /* ================= 5. 컷씬 ================= */
+    async function playUltimateCutscene(skillName, ownerName) {
+      const layer = document.getElementById('cutscene-layer');
+      const cutLine = document.getElementById('cut-line');
+      const topSplit = document.getElementById('split-top');
+      const bottomSplit = document.getElementById('split-bottom');
+      const banner = document.getElementById('banner-container');
+      const title = document.getElementById('cutscene-title');
+      const owner = document.getElementById('cutscene-owner');
+
+      title.innerText = skillName;
+      owner.innerText = `${ownerName} :: AWAKENING`;
+      layer.style.display = 'block';
+
+      await sleep(50);
+      cutLine.style.transform = 'rotate(-11deg) scaleX(1)';
+
+      await sleep(140);
+      topSplit.style.transform = 'translate(-25px, -25px)';
+      bottomSplit.style.transform = 'translate(25px, 25px)';
+      spawnGlassShards(layer);
+
+      await sleep(100);
+      banner.style.opacity = '1';
+      banner.style.transform = 'translate(-50%, -50%) scale(1)';
+      document.body.classList.add('screen-shake');
+
+      await sleep(1000);
+
+      document.body.classList.remove('screen-shake');
+      layer.style.display = 'none';
+
+      topSplit.style.transform = 'translate(0, 0)';
+      bottomSplit.style.transform = 'translate(0, 0)';
+      cutLine.style.transform = 'rotate(-11deg) scaleX(0)';
+      banner.style.opacity = '0';
+      banner.style.transform = 'translate(-50%, -50%) scale(2.2)';
+      document.querySelectorAll('.shard').forEach(s => s.remove());
+    }
+
+    function spawnGlassShards(parent) {
+      for (let i = 0; i < 20; i++) {
+        const shard = document.createElement('div');
+        shard.className = 'shard';
+        const size = Math.random() * 20 + 8;
+        shard.style.width = `${size}px`;
+        shard.style.height = `${size * 1.5}px`;
+        shard.style.clipPath = 'polygon(50% 0%, 0% 100%, 100% 75%)';
+        shard.style.left = `${Math.random() * 80 + 10}%`;
+        shard.style.top = `${Math.random() * 40 + 30}%`;
+
+        const moveX = (Math.random() - 0.5) * 400;
+        const moveY = (Math.random() - 0.5) * 400;
+        const rot = Math.random() * 720;
+
+        shard.style.transition = 'transform 0.8s cubic-bezier(0.1, 0.8, 0.2, 1), opacity 0.8s';
+        parent.appendChild(shard);
+
+        setTimeout(() => {
+          shard.style.transform = `translate(${moveX}px, ${moveY}px) rotate(${rot}deg) scale(0)`;
+          shard.style.opacity = '0';
+        }, 20);
+      }
+    }
+
+    /* ================= 6. 스킬 VFX ================= */
+    function triggerSkillVFX(vfxType, targetSelector) {
+      const vfxContainer = document.getElementById('vfx-container');
+      const selector = (targetSelector.startsWith('#') || targetSelector.startsWith('.')) ? targetSelector : '#' + targetSelector;
+      const target = document.querySelector(selector);
+      if (!target) return;
+
+      const rect = target.getBoundingClientRect();
+      const battlefieldRect = document.getElementById('battlefield').getBoundingClientRect();
+
+      const targetX = rect.left + rect.width / 2 - battlefieldRect.left;
+      const targetY = rect.top + rect.height / 2 - battlefieldRect.top;
+
+      if (vfxType === 'flame') {
+        flashScreen('rgba(249, 115, 22, 0.3)');
+        const el = document.createElement('div');
+        el.className = 'fx-flame-burst';
+        el.style.left = `${targetX}px`; el.style.top = `${targetY}px`;
+        vfxContainer.appendChild(el);
+        setTimeout(() => el.remove(), 400);
+      } else if (vfxType === 'light') {
+        flashScreen('rgba(254, 240, 138, 0.3)');
+        const el = document.createElement('div');
+        el.className = 'fx-holy-pillar';
+        el.style.left = `${targetX}px`; el.style.top = `${targetY}px`;
+        vfxContainer.appendChild(el);
+        setTimeout(() => el.remove(), 500);
+      } else if (vfxType === 'slash') {
+        flashScreen('rgba(255, 255, 255, 0.25)');
+        const el = document.createElement('div');
+        el.className = 'fx-slash-arc';
+        el.style.left = `${targetX}px`; el.style.top = `${targetY}px`;
+        vfxContainer.appendChild(el);
+        setTimeout(() => el.remove(), 350);
+      } else if (vfxType === 'pierce') {
+        flashScreen('rgba(56, 189, 248, 0.25)');
+        const el = document.createElement('div');
+        el.className = 'fx-pierce-cross';
+        el.style.left = `${targetX}px`; el.style.top = `${targetY}px`;
+        vfxContainer.appendChild(el);
+        setTimeout(() => el.remove(), 350);
+      } else if (vfxType === 'ult_explosion') {
+        flashScreen('rgba(0, 0, 0, 0.85)');
+        const el = document.createElement('div');
+        el.className = 'fx-ult-explosion';
+        el.style.left = `${targetX}px`; el.style.top = `${targetY}px`;
+        vfxContainer.appendChild(el);
+        setTimeout(() => el.remove(), 800);
+      }
+    }
+
+    function flashScreen(color) {
+      const flash = document.getElementById('fx-flash-layer');
+      flash.style.background = color;
+      flash.style.opacity = '1';
+      setTimeout(() => flash.style.opacity = '0', 250);
+    }
+
+    /* ================= 7. 턴 실행 ================= */
+    async function executeTurnAction() {
+      if (actionQueue.length === 0 || isBattling) return;
+      isBattling = true;
+      document.getElementById('execute-btn').disabled = true;
+
+      try {
+        for (let i = 0; i < actionQueue.length; i++) {
+          const action = actionQueue[i];
+          highlightSlot(i);
+          await sleep(250);
+
+          if (action.type === 'skip') {
+            await sleep(300);
+          } else if (action.type === 'play') {
+            let calculatedDmg = 0;
+
+            if (action.card.isUlt) {
+              await playUltimateCutscene(action.card.name, action.card.ownerName);
+              const restoreMotion = await performCharacterMotion(action.card.owner, action.card.motion);
+
+              triggerSkillVFX(action.card.vfx, '#unit-enemy');
+              calculatedDmg = Math.round(action.card.damageRate * 2.8 * (0.95 + Math.random() * 0.1));
+              allies[action.card.owner].moxie = 0;
+
+              enemy.hp = Math.max(0, enemy.hp - calculatedDmg);
+              triggerHit('#unit-enemy', calculatedDmg);
+              updateAllUI();
+
+              if (typeof restoreMotion === 'function') await restoreMotion();
+            } else {
+              const restoreMotion = await performCharacterMotion(action.card.owner, action.card.motion);
+
+              triggerSkillVFX(action.card.vfx, '#unit-enemy');
+              const finalRate = getSkillRate(action.card.baseRate, action.card.rank);
+              calculatedDmg = Math.round(finalRate * 1.5 * (0.95 + Math.random() * 0.1));
+              gainMoxie(action.card.owner, 1);
+
+              enemy.hp = Math.max(0, enemy.hp - calculatedDmg);
+              triggerHit('#unit-enemy', calculatedDmg);
+              updateAllUI();
+
+              if (typeof restoreMotion === 'function') await restoreMotion();
+            }
+
+            // 적 퇴치 시 승리 UI 표시
+            if (enemy.hp <= 0) {
+              await sleep(400);
+              showVictoryUI();
+              return;
+            }
+          }
+          await sleep(350);
+        }
+
+        // 적 반격
+        await sleep(400);
+        const aliveAllies = Object.values(allies).filter(a => a.hp > 0);
+        if (aliveAllies.length > 0) {
+          const targetAlly = aliveAllies[Math.floor(Math.random() * aliveAllies.length)];
+          const enemyEl = document.querySelector(enemy.selector);
+          const targetEl = document.querySelector(targetAlly.selector);
+
+          if (enemyEl && targetEl) {
+            const dist = (targetEl.getBoundingClientRect().left - 60) - enemyEl.getBoundingClientRect().left;
+            enemyEl.style.transition = 'transform 0.25s ease-in';
+            enemyEl.style.transform = `translate(${dist}px, -15px) scale(1.1)`;
+            await sleep(250);
+
+            flashScreen('rgba(239, 68, 68, 0.25)');
+            targetAlly.hp = Math.max(0, targetAlly.hp - enemy.atk);
+            triggerHit(targetAlly.selector, enemy.atk);
+            updateAllUI();
+
+            enemyEl.style.transition = 'transform 0.3s ease-out';
+            enemyEl.style.transform = 'translate(0px, 0px)';
+            await sleep(300);
+
+            if (aliveAllies.every(a => a.hp <= 0)) {
+              await sleep(400);
+              alert("💀 파티가 전멸했습니다...");
+              location.reload();
+              return;
+            }
+          }
+        }
+
+        await sleep(500);
+        turnCount++;
+        currentAP = MAX_AP;
+        actionQueue = [];
+        clearHighlight();
+        fillHand();
+
+      } catch (err) {
+        console.error("전투 진행 중 오류 감지:", err);
+      } finally {
+        if (enemy.hp > 0) {
+          isBattling = false;
+          updateAllUI();
+        }
+      }
+    }
+
+    /* ================= 8. 승리 UI 전용 함수 ================= */
+    function showVictoryUI() {
+      const modal = document.getElementById('victory-modal');
+      const turnVal = document.getElementById('vic-turn-val');
+      const alliesVal = document.getElementById('vic-allies-val');
+
+      // 소요 턴수 및 생존 아군 명단 반영
+      turnVal.innerText = `${turnCount} 턴`;
+
+      const survivingNames = Object.values(allies)
+        .filter(a => a.hp > 0)
+        .map(a => a.name)
+        .join(', ');
+      alliesVal.innerText = survivingNames || '없음';
+
+      modal.classList.add('show');
+    }
+
+    /* ================= 9. UI 동기화 ================= */
+    function updateAllUI() {
+      document.getElementById('turn-txt').innerText = `${turnCount}/20`;
+
+      document.getElementById('hp-candle').style.width = (allies.candle.hp / allies.candle.maxHp * 100) + '%';
+      document.getElementById('hp-sword').style.width = (allies.sword.hp / allies.sword.maxHp * 100) + '%';
+      document.getElementById('hp-enemy').style.width = (enemy.hp / enemy.maxHp * 100) + '%';
+
+      renderMoxie('moxie-candle', allies.candle.moxie);
+      renderMoxie('moxie-sword', allies.sword.moxie);
+      renderMoxie('moxie-enemy', enemy.moxie);
+
+      renderSlots();
+      renderHand();
+
+      document.getElementById('execute-btn').disabled = actionQueue.length === 0 || isBattling;
+    }
+
+    function renderMoxie(elementId, count) {
+      const wrap = document.getElementById(elementId);
+      wrap.innerHTML = '';
+      const isFull = count >= 5;
+
+      for (let i = 0; i < 5; i++) {
+        const d = document.createElement('div');
+        d.className = 'moxie-diamond';
+        if (i < count) {
+          d.classList.add('active');
+          if (isFull) d.classList.add('full-charge');
+        }
+        wrap.appendChild(d);
+      }
+    }
+
+    function renderSlots() {
+      for (let i = 0; i < MAX_AP; i++) {
+        const slot = document.getElementById(`slot-${i}`);
+        const act = actionQueue[i];
+
+        if (!act) {
+          slot.className = 'action-slot';
+          slot.innerText = ['I', 'II', 'III'][i];
+        } else if (act.type === 'skip') {
+          slot.className = 'action-slot skipped';
+          slot.innerText = '건너뜀';
+        } else if (act.type === 'play') {
+          slot.className = 'action-slot ' + (act.card.isUlt ? 'ult-filled' : 'filled');
+          const rankText = act.card.isUlt ? 'ULT' : '★'.repeat(act.card.rank);
+          slot.innerHTML = `
+            <span style="color:var(--gold-light); font-weight:bold;">${rankText}</span>
+            <span style="font-size:0.65rem; margin-top:2px;">${act.card.name.substring(0, 4)}</span>
+          `;
+        }
+      }
+    }
+
+    function renderHand() {
+      const box = document.getElementById('hand-cards');
+      box.innerHTML = '';
+
+      hand.forEach((card, idx) => {
+        const el = document.createElement('div');
+        el.className = 'card-item' + (selectedIdx === idx ? ' selected' : '') + (card.isUlt ? ' ultimate-card' : '');
+        el.onclick = () => onCardClick(idx);
+
+        const rankStars = card.isUlt ? 'ULT' : '★'.repeat(card.rank);
+
+        el.innerHTML = `
+          <div class="card-stars">${rankStars}</div>
+          <div class="card-glyph">${card.glyph}</div>
+          <div class="card-title">${card.name}</div>
+          <div class="card-owner-tag">[${card.ownerName}]</div>
+        `;
+        box.appendChild(el);
+      });
+    }
+
+    function updateDetailTooltip(card) {
+      document.getElementById('tip-name').innerText = card.name + (card.isUlt ? ' (최종 술식)' : ` (★${card.rank})`);
+      document.getElementById('tip-owner').innerText = `시전자: ${card.ownerName}`;
+
+      if (card.isUlt) {
+        document.getElementById('tip-desc').innerText = card.desc;
+      } else {
+        const currentRate = getSkillRate(card.baseRate, card.rank);
+        document.getElementById('tip-desc').innerText = card.descFormat(currentRate);
+      }
+    }
+
+    function highlightSlot(idx) {
+      clearHighlight();
+      const el = document.getElementById(`slot-${idx}`);
+      if (el) el.style.boxShadow = '0 0 10px #ffffff';
+    }
+
+    function clearHighlight() {
+      for (let i = 0; i < MAX_AP; i++) {
+        const el = document.getElementById(`slot-${i}`);
+        if (el) el.style.boxShadow = '';
+      }
+    }
+
+    function triggerHit(targetSelector, dmg) {
+      const selector = (targetSelector.startsWith('#') || targetSelector.startsWith('.')) ? targetSelector : '#' + targetSelector;
+      const target = document.querySelector(selector);
+      if (!target) return;
+
+      target.classList.add('hit');
+      setTimeout(() => target.classList.remove('hit'), 300);
+
+      const rect = target.getBoundingClientRect();
+      const pop = document.createElement('div');
+      pop.className = 'dmg-text';
+      pop.innerText = '-' + dmg;
+      pop.style.left = (rect.left + rect.width / 2 - 20) + 'px';
+      pop.style.top = (rect.top - 10) + 'px';
+      document.body.appendChild(pop);
+      setTimeout(() => pop.remove(), 800);
+    }
+
+    function sleep(ms) { return new Promise(res => setTimeout(res, ms)); }
+
+    initBattle();
+  </script>
+</body>
+</html>
