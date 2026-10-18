@@ -137,21 +137,38 @@
   /* =========================================================
    *  유닛 (전장의 캐릭터)
    * ========================================================= */
+  // 가로 화면: 적은 왼쪽, 아군은 오른쪽 / 세로 화면: 적은 위, 아군은 아래
   const POS = {
     ally: [{ x: 63, y: 23 }, { x: 76.5, y: 13 }, { x: 89.5, y: 24 }],
     enemy: [{ x: 37, y: 22 }, { x: 22.5, y: 13 }, { x: 9.5, y: 23 }]
   };
+  const POS_PORTRAIT = {
+    ally: [{ x: 22, y: 14 }, { x: 50, y: 5 }, { x: 78, y: 14 }],
+    enemy: [{ x: 22, y: 45 }, { x: 50, y: 50 }, { x: 78, y: 45 }]
+  };
+  let portrait = false;
   const defOf = u => (u.side === 'ally' ? CHARACTERS[u.key] : ENEMIES[u.key]);
+
+  function placeUnit(el, side, slot) {
+    const pos = (portrait ? POS_PORTRAIT : POS)[side][slot];
+    el.style.left = pos.x + '%';
+    el.style.bottom = pos.y + '%';
+    el.style.zIndex = String(100 - Math.round(pos.y));
+  }
+
+  function layoutUnits() {
+    portrait = R.stage.clientHeight > R.stage.clientWidth * 1.05;
+    R.stage.classList.toggle('portrait', portrait);
+    if (!battle) return;
+    [...battle.allies, ...battle.enemies].forEach(u => { const v = views.get(u.uid); if (v) placeUnit(v.el, u.side, u.slot); });
+  }
 
   function createUnitView(u, { spawn = false } = {}) {
     const def = defOf(u);
     const aff = AFFLATUS[u.afflatus];
-    const pos = POS[u.side][u.slot];
     const el = h('div', `unit ${u.side}${u.boss ? ' boss' : ''} k-${u.key}`);
     el.dataset.uid = u.uid;
-    el.style.left = pos.x + '%';
-    el.style.bottom = pos.y + '%';
-    el.style.zIndex = String(100 - Math.round(pos.y));
+    placeUnit(el, u.side, u.slot);
     el.style.setProperty('--size', def.size || 1);
     el.style.setProperty('--ar', def.ar || 0.75);
     el.style.setProperty('--aff', aff.color);
@@ -608,11 +625,11 @@
       slot.style.setProperty('--c', CHARACTERS[q.card.owner].color);
       if (q.type === 'merge') {
         slot.classList.add('merge');
-        slot.innerHTML = `<span class="g">${s.glyph}</span><span class="st">합성</span><span class="t">${s.name}</span>`;
+        slot.innerHTML = `<span class="g">${s.glyph}</span><span class="sr">합성</span><span class="t">${s.name}</span>`;
       } else {
         slot.classList.add('filled');
         if (q.card.isUlt) slot.classList.add('ult');
-        slot.innerHTML = `<span class="g">${s.glyph}</span><span class="st">${q.card.isUlt ? 'ULT' : '★'.repeat(q.card.rank)}</span><span class="t">${s.name}</span>`;
+        slot.innerHTML = `<span class="g">${s.glyph}</span><span class="sr">${q.card.isUlt ? 'ULT' : '★'.repeat(q.card.rank)}</span><span class="t">${s.name}</span>`;
       }
       if (popLast && i === battle.queue.length - 1) slot.classList.add('pop');
     });
@@ -891,9 +908,15 @@
     if (tv) {
       const a = v.el.getBoundingClientRect(), b = tv.el.getBoundingClientRect();
       const ac = a.left + a.width / 2, bc = b.left + b.width / 2;
-      const dir = Math.sign(ac - bc) || 1;
-      dx = bc + dir * (b.width * 0.42 + a.width * 0.4) - ac;
-      dy = b.bottom - a.bottom;
+      if (portrait) {
+        // 세로 화면에서는 대상의 앞(아래/위)까지 다가갑니다.
+        dx = bc - ac;
+        dy = b.bottom - a.bottom + Math.sign(a.bottom - b.bottom) * a.height * 0.45;
+      } else {
+        const dir = Math.sign(ac - bc) || 1;
+        dx = bc + dir * (b.width * 0.42 + a.width * 0.4) - ac;
+        dy = b.bottom - a.bottom;
+      }
     }
     const m = M(dx, dy, dx <= 0 ? 1 : -1);
     if (m.sfx) sfx(m.sfx);
@@ -1788,7 +1811,7 @@
         default: break;
       }
     });
-    window.addEventListener('resize', () => { hideTip(); });
+    window.addEventListener('resize', () => { hideTip(); layoutUnits(); });
   }
 
   function buildScenery() {
@@ -1822,6 +1845,7 @@
       { speed: () => settings.speed, shake: () => settings.shake, lite: window.innerWidth < 700 }
   );
   bindUI();
+  layoutUnits();
   setSpeed(settings.speed);
   setMuted(settings.muted);
   renderSlots();
@@ -1829,5 +1853,5 @@
   updateButtons();
 
   // 디버깅/테스트용 노출
-  window.__game = { get battle() { return battle; }, newGame, executeTurn, settings };
+  window.__game = { get battle() { return battle; }, newGame, executeTurn, settings, refresh() { renderHand(); renderSlots(); renderAP(); syncAll(); updateButtons(); } };
 })();
