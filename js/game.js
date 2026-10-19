@@ -73,7 +73,7 @@
     round: $('#hud-round'), roundOf: $('#hud-round-of'), roundName: $('#hud-round-name'), turn: $('#hud-turn'), turnOf: $('#hud-turn-of'),
     speed: $('#btn-speed'), sound: $('#btn-sound'),
     bossBar: $('#boss-bar'), callout: $('#callout'), banner: $('#banner'), combo: $('#combo'), toast: $('#toast'),
-    cutscene: $('#cutscene'), ghosts: $('#ghost-layer'), tip: $('#tooltip')
+    cutscene: $('#cutscene'), ghosts: $('#ghost-layer'), tip: $('#tooltip'), fxDom: $('#fx-dom')
   };
 
   /* ---------- 상태 ---------- */
@@ -216,6 +216,8 @@
         const c = centerOf(u.uid, 'feet');
         FX.ring(c.x, c.y, { color: aff.color, r0: 10, r1: 110, width: 5, life: 900, squash: 0.3 });
         FX.bubbles(c.x, c.y - 20, { count: 14, spread: 50 });
+        FX.flare(c.x, c.y - c.h * 0.4, { color: aff.color, size: c.h * 0.9, rays: 10, life: 520 });
+        FX.swirl(c.x, c.y - c.h * 0.3, { count: 16, colors: [aff.color, '#ffffff'], radius: [c.h * 0.3, c.h * 0.45], squash: 0.4, rise: c.h * 0.5, life: [600, 800] });
       });
     }
     return v;
@@ -262,6 +264,7 @@
     const full = value >= RULES.moxieMax;
     v.moxie.innerHTML = Array.from({ length: RULES.moxieMax }, (_, i) => `<i class="${i < value ? 'on' : ''}"></i>`).join('');
     v.moxie.classList.toggle('full', full);
+    v.el.classList.toggle('charged', u.side === 'ally' && u.alive && full);
   }
 
   function renderStatuses(v, u) {
@@ -315,6 +318,7 @@
       const v = views.get(e.uid);
       if (!v || !v.intents) continue;
       v.intents.innerHTML = '';
+      v.el.classList.toggle('charging', e.alive && e.intents.some(it => SKILLS[it.skillId].ult));
       if (!e.alive) continue;
       e.intents.forEach((it, i) => {
         const s = SKILLS[it.skillId];
@@ -421,6 +425,10 @@
           [{ transform: 'translate(140px, 30px) rotate(10deg)', opacity: 0 }, { transform: 'none', opacity: 1 }],
           { duration: 460, delay: deal ? 70 * k++ : 0, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'backwards' }
         );
+        if (card.isUlt) {
+          n.classList.add('ult-arrive');
+          setTimeout(() => n.classList.remove('ult-arrive'), 1300);
+        }
       }
       const old = prevRanks.get(card.uid);
       if (old != null && old < card.rank) {
@@ -770,10 +778,27 @@
   }
   function hideCombo() { R.combo.className = R.combo.className ? 'show out' : ''; later(() => { R.combo.className = ''; }, 400); }
 
+  // 잔상: 빠르게 움직이는 캐릭터의 모습을 몇 장 남깁니다.
+  function afterimages(uid, count, ms, color) {
+    const v = views.get(uid);
+    if (!v) return;
+    for (let i = 1; i <= count; i++) {
+      later(() => {
+        if (!v.el.isConnected) return;
+        const s = R.stage.getBoundingClientRect();
+        const r = v.el.getBoundingClientRect();
+        const g = h('div', 'ghost-img', v.sprite.innerHTML);
+        g.style.cssText = `left:${r.left - s.left}px;top:${r.top - s.top}px;width:${r.width}px;height:${r.height}px;transform:${getComputedStyle(v.mover).transform};--gc:${color};animation-duration:${dur(440)}ms`;
+        R.fxDom.appendChild(g);
+        setTimeout(() => g.remove(), dur(460));
+      }, dur((ms * i) / (count + 1)));
+    }
+  }
+
   function hurt(u, v, ev, c) {
     const dir = u.side === 'enemy' ? -1 : 1;
     v.mover.animate(
-      [{ transform: 'translateX(0)' }, { transform: `translateX(${dir * (ev.crit ? 24 : 12)}px)` }, { transform: 'translateX(0)' }],
+      [{ transform: 'translateX(0)' }, { transform: `translateX(${dir * (ev.crit ? 26 : 12)}px)` }, { transform: 'translateX(0)' }],
       { duration: dur(240), easing: 'ease-out', composite: 'add' }
     );
     v.sprite.classList.remove('hurt');
@@ -781,8 +806,20 @@
     v.sprite.classList.add('hurt');
     const fullyBlocked = ev.absorbed && ev.absorbed >= ev.amount;
     sfx(fullyBlocked ? 'shieldHit' : ev.crit ? 'crit' : 'hit');
-    FX.shake(ev.crit ? 9 : 4, ev.crit ? 320 : 180);
-    if (ev.absorbed) FX.ring(c.x, c.y, { color: '#7dd3fc', r0: 24, r1: 76, width: 4, life: 420 });
+    FX.shake(ev.crit ? 10 : 4, ev.crit ? 340 : 180);
+    const hx = c.x + FX.rand(-0.15, 0.15) * c.w, hy = c.y + FX.rand(-0.15, 0.1) * c.h;
+    if (ev.absorbed) FX.ring(c.x, c.y, { color: '#7dd3fc', r0: 24, r1: c.h * 0.6, width: 5, life: 440, fill: true });
+    if (fullyBlocked) {
+      FX.flare(hx, hy, { color: '#7dd3fc', size: 70, rays: 6, life: 300 });
+      return;
+    }
+    FX.flare(hx, hy, { color: u.side === 'enemy' ? '#fff3c4' : '#fecaca', size: ev.crit ? 150 : 72, rays: ev.crit ? 14 : 8, life: ev.crit ? 440 : 260, streakScale: ev.crit ? 4 : 2.4 });
+    FX.burst(hx, hy, { kind: 'spark', count: ev.crit ? 28 : 12, colors: ['#ffffff', '#fde68a'], speed: [4, 11], life: [180, 400], size: [1.2, 2.4], len: 2.4 });
+    if (ev.crit) {
+      FX.ring(hx, hy, { color: '#fde68a', r0: 10, r1: c.h * 0.85, width: 7, life: 440, fill: true });
+      FX.impact(60);
+      FX.chroma(200);
+    }
   }
 
   function damageNumber(u, c, ev) {
@@ -792,17 +829,22 @@
     const tags = (ev.crit ? '<i class="tag">CRITICAL</i>' : '') +
       (ev.aff === 'adv' ? '<i class="aff up">▲ 우세</i>' : ev.aff === 'dis' ? '<i class="aff down">▼ 열세</i>' : '');
     const abs = ev.absorbed ? `<i class="abs">盾 ${fmt(ev.absorbed)} 흡수</i>` : '';
-    FX.text(x, y, `${tags}<b>${fmt(ev.amount)}</b>${abs}`, `dmg${ev.crit ? ' crit' : ''}${u.side === 'ally' ? ' on-ally' : ''}`, ev.crit ? 1350 : 1050);
+    const cls = `dmg${ev.crit ? ' crit' : ''}${ev.amount >= 500 ? ' heavy' : ''}${u.side === 'ally' ? ' on-ally' : ''}`;
+    FX.text(x, y, `${tags}<b>${fmt(ev.amount)}</b>${abs}`, cls, ev.crit ? 1400 : 1100);
   }
 
   function die(u, v) {
     v.el.classList.add('dead');
+    v.el.classList.remove('charged', 'charging');
     const c = centerOf(u.uid);
     const color = AFFLATUS[u.afflatus].color;
     if (u.side === 'enemy') {
       sfx('death');
+      FX.flare(c.x, c.y, { color, size: c.h * 1.3, rays: 16, life: 650, streakScale: 4 });
+      FX.burst(c.x, c.y, { kind: 'shard', count: 26, colors: [color, '#ffffff', '#fde68a'], speed: [2, 8], life: [600, 1100], size: [4, 9], gravity: 0.15, spin: 2, blend: 'source-over' });
       FX.burst(c.x, c.y, { count: 46, colors: [color, '#ffffff', '#fde68a'], speed: [1, 5], life: [700, 1400], size: [2, 5], gravity: -0.05, drag: 0.03 });
-      FX.ring(c.x, c.y, { color, r1: c.h * 0.9, width: 5, life: 800 });
+      FX.burst(c.x, c.y, { count: 7, colors: [color, '#ffffff'], speed: [0.3, 1], angle: -90, spread: 60, life: [1500, 2100], size: [6, 10], gravity: -0.035, drag: 0.01, sway: 16, fadeIn: 0.15 });
+      FX.ring(c.x, c.y, { color, r1: c.h * 1.1, width: 6, life: 820, fill: true });
       v.sprite.animate(
         [{ opacity: 1, filter: 'brightness(1)', transform: 'none' }, { opacity: 0.9, filter: 'brightness(2.6) saturate(.4)', transform: 'scale(1.06)', offset: 0.3 }, { opacity: 0, filter: 'brightness(4) blur(8px)', transform: 'translateY(-30px) scale(1.15)' }],
         { duration: dur(1000), easing: 'ease-in', fill: 'forwards' }
@@ -811,7 +853,9 @@
     } else {
       sfx('allyDown');
       FX.text(c.x, c.y - 70, '전투 불능', 'down', 1400);
+      FX.burst(c.x, c.y, { kind: 'shard', count: 16, colors: ['#94a3b8', '#e2e8f0', '#64748b'], speed: [1, 5], life: [600, 1000], size: [3, 7], gravity: 0.2, spin: 2, blend: 'source-over' });
       FX.burst(c.x, c.y, { count: 24, colors: ['#94a3b8', '#e2e8f0'], speed: [0.5, 2.5], life: [700, 1200], size: [2, 4], gravity: -0.03 });
+      FX.ring(c.x, c.y + c.h * 0.4, { color: '#94a3b8', r1: c.w, width: 4, squash: 0.3, life: 700 });
     }
   }
 
@@ -836,28 +880,39 @@
         break;
       case 'heal':
         setHP(v, u, ev.hp);
-        if (ev.amount > 0) FX.text(c.x + FX.rand(-10, 10), c.y - 20, `+${fmt(ev.amount)}`, 'heal', 1000);
-        FX.burst(c.x, c.y + c.h * 0.2, { kind: 'leaf', count: 12, colors: ['#86efac', '#4ade80', '#bbf7d0', '#fef9c3'], speed: [0.4, 1.8], angle: -90, spread: 120, gravity: -0.04, life: [700, 1200], size: [3, 5], blend: 'source-over' });
-        FX.burst(c.x, c.y, { count: 10, colors: ['#bbf7d0', '#ffffff'], speed: [0.5, 2], angle: -90, spread: 90, life: [500, 900], size: [2, 4] });
+        if (ev.amount > 0) FX.text(c.x + FX.rand(-10, 10), c.y - 20, `+${fmt(ev.amount)}`, 'heal', 1100);
+        FX.pillar(c.x, c.y + c.h * 0.48, { width: c.w * 0.55, height: c.h * 1.5, color: '#86efac', life: 700 });
+        FX.swirl(c.x, c.y + c.h * 0.3, { count: 14, kind: 'leaf', colors: PAL.leaf, radius: [c.w * 0.45, c.w * 0.6], squash: 0.35, rise: c.h * 0.9, turns: 1.2, expand: 0, life: [900, 1200], size: [3, 5], blend: 'source-over' });
+        FX.burst(c.x, c.y, { count: 12, colors: ['#bbf7d0', '#ffffff'], speed: [0.5, 2], angle: -90, spread: 90, life: [500, 900], size: [2, 4] });
         sfx('heal');
         break;
       case 'shield':
         setShield(v, u, ev.shield);
-        FX.text(c.x + FX.rand(-10, 10), c.y - 44, `盾 +${fmt(ev.amount)}`, 'shield', 1000);
-        FX.dom('shield-orb', c.x, c.y, 1000, '', { width: c.w * 1.25 + 'px', height: c.h * 1.05 + 'px' });
+        FX.text(c.x + FX.rand(-10, 10), c.y - 44, `盾 +${fmt(ev.amount)}`, 'shield', 1100);
+        FX.dom('shield-orb', c.x, c.y, 1150, '', { width: c.w * 1.3 + 'px', height: c.h * 1.1 + 'px' });
+        FX.flare(c.x, c.y - c.h * 0.3, { color: '#7dd3fc', size: 80, rays: 8, life: 380 });
+        FX.swirl(c.x, c.y, { count: 12, colors: ['#bae6fd', '#ffffff'], radius: [c.w * 0.6, c.w * 0.65], squash: 0.45, turns: 1, expand: 0, life: [600, 800], size: [2, 3] });
         sfx('shield');
         break;
       case 'status': {
         const d = STATUS[ev.id];
         renderStatuses(v, u);
         FX.text(c.x + FX.rand(-12, 12), c.y - c.h * 0.42, `${d.glyph} ${d.name}`, 'status ' + d.type, 1100).style.setProperty('--c', d.color);
+        if (d.type === 'debuff') {
+          FX.burst(c.x, c.y - c.h * 0.2, { count: 16, colors: [d.color, '#1f2937', '#4b5563'], speed: [0.4, 2], angle: 90, spread: 140, life: [600, 1000], size: [3, 7], blend: 'source-over', alpha: 0.75 });
+          FX.ring(c.x, c.y, { color: d.color, r0: c.h * 0.7, r1: c.h * 0.2, width: 4, life: 500 });
+        } else {
+          FX.burst(c.x, c.y + c.h * 0.3, { kind: 'spark', count: 14, colors: [d.color, '#ffffff'], speed: [2, 4.5], angle: -90, spread: 24, life: [400, 700], size: [1.5, 2.5], len: 4, jitter: c.w * 0.35 });
+          FX.ring(c.x, c.y + c.h * 0.45, { color: d.color, r1: c.w * 0.8, width: 4, squash: 0.3, fill: true });
+        }
         sfx(d.type === 'debuff' ? 'debuff' : 'buff');
         break;
       }
       case 'cleanse':
         renderStatuses(v, u);
         FX.text(c.x, c.y - c.h * 0.42, '정화', 'heal', 1000);
-        FX.burst(c.x, c.y, { count: 16, colors: ['#ffffff', '#e0f2fe'], speed: [1, 3], life: [500, 800], size: [2, 4] });
+        FX.flare(c.x, c.y, { color: '#ffffff', size: 90, rays: 10, life: 420 });
+        FX.burst(c.x, c.y, { kind: 'spark', count: 18, colors: ['#ffffff', '#e0f2fe'], speed: [2, 5], angle: -90, spread: 100, life: [400, 700], size: [1.5, 2.5], len: 3 });
         break;
       case 'expire':
         renderStatuses(v, u);
@@ -865,13 +920,24 @@
         break;
       case 'moxie':
         renderMoxie(v, u, ev.value);
-        if (u.side === 'ally' && ev.value >= RULES.moxieMax) FX.text(c.x, c.y - c.h * 0.55, '열정 MAX', 'moxie', 1100);
+        if (u.side === 'ally' && ev.value >= RULES.moxieMax) {
+          FX.text(c.x, c.y - c.h * 0.55, '열정 MAX', 'moxie', 1200);
+          FX.flare(c.x, c.y, { color: '#fbbf24', size: 120, rays: 12, life: 520 });
+          FX.ring(c.x, c.y + c.h * 0.45, { color: '#fbbf24', r1: c.w * 1.1, width: 5, squash: 0.3, fill: true, life: 700 });
+          FX.embers(c.x, c.y + c.h * 0.2, { count: 16, spread: c.w * 0.5, colors: ['#fbbf24', '#fde68a', '#ffffff'] });
+        }
         break;
       case 'dot': {
         setHP(v, u, ev.hp);
         const d = STATUS[ev.id];
         FX.text(c.x + FX.rand(-14, 14), c.y - 10, `${d.glyph} ${fmt(ev.amount)}`, 'dot', 1000).style.setProperty('--c', d.color);
-        FX.burst(c.x, c.y + c.h * 0.15, { count: 16, colors: ev.id === 'burn' ? ['#ffb347', '#ff6a00', '#ffd27a'] : ['#bef264', '#84cc16', '#d9f99d'], speed: [0.5, 2.5], angle: -90, spread: 80, gravity: -0.06, life: [500, 900], size: [2, 5] });
+        if (ev.id === 'burn') {
+          FX.burst(c.x, c.y + c.h * 0.3, { count: 26, colors: PAL.fire, speed: [1, 3.5], angle: -90, spread: 50, gravity: -0.08, life: [500, 900], size: [3, 7], jitter: c.w * 0.3 });
+          FX.embers(c.x, c.y, { count: 10, spread: c.w * 0.4 });
+        } else {
+          FX.burst(c.x, c.y + c.h * 0.15, { count: 18, colors: PAL.venom, speed: [0.5, 2.5], angle: -90, spread: 80, gravity: -0.05, life: [500, 900], size: [2, 5] });
+          FX.bubbles(c.x, c.y, { count: 10, spread: c.w * 0.4, color: 'rgba(190,242,100,.85)' });
+        }
         v.sprite.classList.remove('hurt');
         void v.sprite.offsetWidth;
         v.sprite.classList.add('hurt');
@@ -900,17 +966,17 @@
     }
   }
 
-  /* ---------- 이동 모션 ---------- */
+  /* ---------- 이동 모션 (trail: 잔상 수) ---------- */
   const MOTION = {
-    dash: (dx, dy, s) => ({ t: 230, back: 300, sfx: 'whoosh', go: [{ transform: 'none' }, { transform: `translate(${dx * 0.12}px, -8px) rotate(${6 * s}deg)`, offset: 0.25 }, { transform: `translate(${dx}px, ${dy}px) rotate(${-16 * s}deg)` }] }),
-    leap: (dx, dy, s) => ({ t: 360, back: 340, sfx: 'whoosh', go: [{ transform: 'none' }, { transform: `translate(${dx * 0.5}px, ${dy - 120}px) rotate(${-25 * s}deg)`, offset: 0.55 }, { transform: `translate(${dx}px, ${dy - 14}px) rotate(${-50 * s}deg) scale(1.06)` }] }),
+    dash: (dx, dy, s) => ({ t: 230, back: 300, sfx: 'whoosh', trail: 4, go: [{ transform: 'none' }, { transform: `translate(${dx * 0.12}px, -8px) rotate(${6 * s}deg)`, offset: 0.25 }, { transform: `translate(${dx}px, ${dy}px) rotate(${-16 * s}deg)` }] }),
+    leap: (dx, dy, s) => ({ t: 360, back: 340, sfx: 'whoosh', trail: 5, go: [{ transform: 'none' }, { transform: `translate(${dx * 0.5}px, ${dy - 120}px) rotate(${-25 * s}deg)`, offset: 0.55 }, { transform: `translate(${dx}px, ${dy - 14}px) rotate(${-50 * s}deg) scale(1.06)` }] }),
     hover: dx => ({ t: 320, back: 320, go: [{ transform: 'none' }, { transform: `translate(${dx * 0.28}px, -46px) scale(1.1)` }] }),
     ascend: () => ({ t: 360, back: 360, go: [{ transform: 'none' }, { transform: 'translateY(-80px) scale(1.12)' }] }),
     float: (dx, dy, s) => ({ t: 300, back: 300, go: [{ transform: 'none' }, { transform: `translate(${dx * 0.16}px, -38px) rotate(${-6 * s}deg)` }] }),
-    ultAscend: () => ({ t: 480, back: 420, go: [{ transform: 'none' }, { transform: 'translateY(-130px) scale(1.3)' }] }),
-    ultDash: (dx, dy, s) => ({ t: 170, back: 320, sfx: 'whoosh', go: [{ transform: 'none' }, { transform: `translate(${dx}px, ${dy - 16}px) scale(1.2) rotate(${-24 * s}deg)` }] }),
-    ultFloat: dx => ({ t: 450, back: 400, go: [{ transform: 'none' }, { transform: `translate(${dx * 0.2}px, -100px) scale(1.22)` }] }),
-    lunge: (dx, dy) => ({ t: 260, back: 320, sfx: 'lunge', ease: 'cubic-bezier(.5,0,.2,1)', go: [{ transform: 'none' }, { transform: `translate(${-dx * 0.06}px, -10px) scale(.94)`, offset: 0.35 }, { transform: `translate(${dx}px, ${dy}px) scale(1.06)` }] }),
+    ultAscend: () => ({ t: 480, back: 420, trail: 3, go: [{ transform: 'none' }, { transform: 'translateY(-130px) scale(1.3)' }] }),
+    ultDash: (dx, dy, s) => ({ t: 170, back: 320, sfx: 'whoosh', trail: 6, go: [{ transform: 'none' }, { transform: `translate(${dx}px, ${dy - 16}px) scale(1.2) rotate(${-24 * s}deg)` }] }),
+    ultFloat: dx => ({ t: 450, back: 400, trail: 3, go: [{ transform: 'none' }, { transform: `translate(${dx * 0.2}px, -100px) scale(1.22)` }] }),
+    lunge: (dx, dy) => ({ t: 260, back: 320, sfx: 'lunge', trail: 3, ease: 'cubic-bezier(.5,0,.2,1)', go: [{ transform: 'none' }, { transform: `translate(${-dx * 0.06}px, -10px) scale(.94)`, offset: 0.35 }, { transform: `translate(${dx}px, ${dy}px) scale(1.06)` }] }),
     pulse: () => ({ t: 280, back: 280, go: [{ transform: 'none' }, { transform: 'translateY(-16px) scale(1.1)' }] })
   };
 
@@ -935,6 +1001,14 @@
     }
     const m = M(dx, dy, dx <= 0 ? 1 : -1);
     if (m.sfx) sfx(m.sfx);
+    const u = battle.unit(uid);
+    const color = u ? AFFLATUS[u.afflatus].color : '#ffffff';
+    if (m.trail) {
+      afterimages(uid, m.trail, m.t, color);
+      const f = centerOf(uid, 'feet');
+      FX.ring(f.x, f.y, { color, r0: 8, r1: 70, width: 4, squash: 0.3, life: 420 });
+      FX.burst(f.x, f.y, { count: 10, colors: [color, '#e2e8f0'], speed: [1, 3], angle: -90, spread: 160, life: [300, 500], size: [2, 4] });
+    }
     const go = v.mover.animate(m.go, { duration: dur(m.t), easing: m.ease || 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' });
     await guard(go.finished);
     return async () => {
@@ -945,17 +1019,19 @@
     };
   }
 
-  /* ---------- 마법진 ---------- */
-  function sigil(color) {
+  /* ---------- 마법진: 바깥 고리에 글자가 돌고, 안쪽 별이 반대로 돕니다 ---------- */
+  function sigil(color, chars = '律審炎光智書星岩') {
     const ticks = Array.from({ length: 24 }, (_, i) => {
       const a = (i / 24) * Math.PI * 2;
-      const r1 = 44, r2 = i % 2 ? 47 : 49;
-      return `M${50 + Math.cos(a) * r1} ${50 + Math.sin(a) * r1}L${50 + Math.cos(a) * r2} ${50 + Math.sin(a) * r2}`;
+      const r1 = 36, r2 = i % 2 ? 38.5 : 40;
+      return `M${(50 + Math.cos(a) * r1).toFixed(1)} ${(50 + Math.sin(a) * r1).toFixed(1)}L${(50 + Math.cos(a) * r2).toFixed(1)} ${(50 + Math.sin(a) * r2).toFixed(1)}`;
     }).join('');
-    return `<svg viewBox="0 0 100 100" fill="none" stroke="${color}" stroke-width="1.2">
-      <circle cx="50" cy="50" r="48"/><circle cx="50" cy="50" r="40" stroke-dasharray="2 3"/><circle cx="50" cy="50" r="22"/>
-      <path d="${ticks}"/>
-      <path d="M50 10 L84.6 70 L15.4 70Z M50 90 L15.4 30 L84.6 30Z" stroke-width=".9"/>
+    const glyphs = [...chars].map((ch, i, arr) => `<text x="50" y="7.8" font-size="5" text-anchor="middle" fill="${color}" stroke="none" font-family="serif" transform="rotate(${(i / arr.length) * 360} 50 50)">${ch}</text>`).join('');
+    return `<svg viewBox="0 0 100 100" fill="none" stroke="${color}" stroke-width="1.1">
+      <circle cx="50" cy="50" r="48.5"/><circle cx="50" cy="50" r="42.5"/>${glyphs}
+      <g class="sg-in"><circle cx="50" cy="50" r="34" stroke-dasharray="2 3"/><path d="${ticks}"/>
+        <path d="M50 18 L77.7 66 L22.3 66Z M50 82 L22.3 34 L77.7 34Z" stroke-width=".9"/>
+        <circle cx="50" cy="50" r="16"/><circle cx="50" cy="50" r="7" fill="${color}" fill-opacity=".3"/></g>
     </svg>`;
   }
 
@@ -974,14 +1050,21 @@
     violet: ['#f0abfc', '#c084fc', '#fae8ff']
   };
 
-  const sweepAcross = (targets, colors) => {
-    const { w } = stageSize();
-    targets.forEach(uid => {
+  // 대상들의 발 높이(평균)와 키(최대) — 해일을 그릴 위치
+  function rowOf(uids) {
+    const cs = uids.map(uid => centerOf(uid, 'feet'));
+    const hs = uids.map(uid => centerOf(uid).h);
+    return { y: cs.reduce((s, c) => s + c.y, 0) / Math.max(1, cs.length), h: Math.max(60, ...hs) };
+  }
+
+  // 각 대상 위로 물보라를 흩뿌립니다.
+  function splashOn(uids, colors) {
+    uids.forEach(uid => {
       const c = centerOf(uid);
-      FX.burst(c.x - 80, c.y + c.h * 0.2, { count: 40, colors, speed: [6, 14], angle: -15, spread: 40, life: [400, 800], size: [3, 8], gravity: 0.12, drag: 0.02, jitterY: c.h * 0.35, jitter: 30 });
+      FX.burst(c.x, c.y + c.h * 0.3, { count: 34, colors, speed: [3, 9], angle: -90, spread: 110, life: [500, 900], size: [3, 7], gravity: 0.3, drag: 0.02 });
+      FX.ring(c.x, c.y + c.h * 0.45, { color: '#7dd3fc', r1: c.w * 1.2, width: 5, squash: 0.3, life: 600 });
     });
-    FX.burst(w * 0.45, stageSize().h * 0.72, { count: 60, colors, speed: [8, 16], angle: -8, spread: 22, life: [600, 1000], size: [3, 9], gravity: 0.05, drag: 0.01, jitter: 40, jitterY: 60 });
-  };
+  }
 
   const CHOREO = {
     /* ── 촛불 ── */
@@ -989,16 +1072,21 @@
       const tgt = cast.targets[0];
       const back = await motion(cast.uid, 'hover', tgt);
       const from = centerOf(cast.uid, 'top');
+      FX.flare(from.x, from.y, { color: '#ffb347', size: 70, rays: 8, life: 320 });
+      FX.swirl(from.x, from.y, { count: 16, colors: PAL.fire, radius: [26, 42], inward: true, turns: 1.2, life: [260, 320], size: [2, 4] });
       sfx('fireball');
-      await guard(FX.projectile(from, centerOf(tgt), { color: '#ffb347', trail: ['#ff6a00', '#ffd27a', '#ff3d00'], size: 13, duration: 320, arc: 46 }));
+      await guard(FX.projectile(from, centerOf(tgt), { color: '#ffb347', trail: ['#ff6a00', '#ffd27a', '#ff3d00'], size: 15, duration: 330, arc: 46, spiral: true }));
       await runEvents(res.events, {
         onHit: ev => {
           const c = centerOf(ev.uid);
           sfx('flame');
-          FX.flash('#ff7a1a', 240, 0.22);
-          FX.burst(c.x, c.y, { count: 36, colors: PAL.fire, speed: [2, 7], life: [400, 900], size: [3, 7], gravity: -0.08, drag: 0.06 });
-          FX.burst(c.x, c.y, { kind: 'spark', count: 16, colors: ['#ffd27a', '#fff'], speed: [4, 10], life: [200, 400], size: [1.5, 2.5], len: 2 });
-          FX.ring(c.x, c.y, { color: '#ff9a2e', r1: c.h * 0.6, width: 8 });
+          FX.flash('#ff7a1a', 260, 0.28);
+          FX.flare(c.x, c.y, { color: '#ffb347', size: c.h * 1.15, rays: 12, life: 440 });
+          FX.pillar(c.x, c.y + c.h * 0.45, { width: c.w * 0.7, height: c.h * 1.7, color: '#ff8a1f', life: 620 });
+          FX.burst(c.x, c.y, { count: 46, colors: PAL.fire, speed: [2, 8], life: [400, 900], size: [3, 8], gravity: -0.08, drag: 0.06 });
+          FX.burst(c.x, c.y, { kind: 'spark', count: 22, colors: ['#ffd27a', '#fff'], speed: [4, 11], life: [200, 420], size: [1.5, 2.5], len: 2 });
+          FX.ring(c.x, c.y, { color: '#ff9a2e', r1: c.h * 0.75, width: 9, fill: true });
+          FX.embers(c.x, c.y, { count: 18, spread: c.w * 0.6 });
         }
       });
       await back();
@@ -1007,13 +1095,19 @@
       const back = await motion(cast.uid, 'ascend');
       const c = centerOf(cast.uid, 'top');
       sfx('holy');
-      FX.flash('#fde68a', 320, 0.22);
-      FX.burst(c.x, c.y, { count: 34, colors: PAL.holy, speed: [1, 4], life: [600, 1100], size: [2, 5] });
-      FX.ring(c.x, c.y, { color: '#fde68a', r1: 150, width: 5, life: 700 });
+      FX.flash('#fde68a', 360, 0.28);
+      FX.flare(c.x, c.y, { color: '#fde68a', size: 170, rays: 16, life: 720 });
+      FX.dom('sigil', c.x, c.y, 1300, sigil('#fde68a', '燈護光盾守明'), { '--w': '180px' });
+      FX.ring(c.x, c.y, { color: '#fde68a', r1: 190, width: 5, life: 820, fill: true });
+      FX.burst(c.x, c.y, { count: 40, colors: PAL.holy, speed: [1, 5], life: [600, 1200], size: [2, 5] });
+      cast.targets.forEach(uid => {
+        const t = centerOf(uid);
+        FX.burst(t.x, t.y - t.h * 1.1, { kind: 'leaf', count: 7, colors: ['#fff7d6', '#fde68a'], speed: [0.2, 0.8], angle: 90, spread: 60, gravity: 0.01, life: [1000, 1500], size: [4, 6], blend: 'source-over', jitter: t.w * 0.5 });
+      });
       await wait(220);
       await runEvents(res.events, {
         gap: 110,
-        before: ev => { if (ev.type === 'shield') { const t = centerOf(ev.uid); FX.beam(c.x, c.y, t.x, t.y, { color: '#fde68a', width: 4, life: 420 }); } }
+        before: ev => { if (ev.type === 'shield') { const t = centerOf(ev.uid); FX.beam(c.x, c.y, t.x, t.y, { color: '#fde68a', width: 5, life: 480 }); } }
       });
       await back();
     },
@@ -1022,23 +1116,34 @@
       const c = centerOf(cast.uid, 'top');
       const { w, h: sh } = stageSize();
       sfx('holy');
-      FX.flash('#000000', 600, 0.55);
-      FX.ring(c.x, c.y, { color: '#fde68a', r1: 220, width: 6, life: 900 });
-      FX.dom('sigil', c.x, c.y, 1600, sigil('#fde68a'), { '--w': '260px' });
-      await wait(420);
-      cast.targets.forEach(uid => { const t = centerOf(uid, 'feet'); FX.pillar(t.x, t.y, { width: 80, height: t.y + 60, color: '#fde68a', life: 1000 }); });
+      FX.flash('#000000', 700, 0.6);
+      FX.speedLines({ x: c.x, y: c.y, color: '#fff7d6', life: 950, alpha: 0.4 });
+      FX.flare(c.x, c.y, { color: '#fde68a', size: 230, rays: 18, life: 950, streakScale: 5 });
+      FX.ring(c.x, c.y, { color: '#fde68a', r1: 270, width: 7, life: 1000, fill: true });
+      FX.dom('sigil big', c.x, c.y, 1900, sigil('#fde68a', '規律審判正義秩序光'), { '--w': Math.min(w, sh) * 0.75 + 'px' });
+      FX.swirl(c.x, c.y, { count: 36, colors: PAL.holy, radius: [90, 150], inward: true, turns: 1.4, life: [480, 620], size: [2, 5] });
+      await wait(460);
+      cast.targets.forEach((uid, i) => later(() => {
+        const t = centerOf(uid, 'feet');
+        FX.pillar(t.x, t.y, { width: 100, height: t.y + 60, color: '#fde68a', life: 1150 });
+        FX.crack(t.x, t.y, { color: '#fde68a', branches: 8, length: [50, 130] });
+        FX.flare(t.x, t.y - 50, { color: '#fff7d6', size: 190, rays: 14, life: 520 });
+      }, dur(i * 90)));
       sfx('boom');
-      FX.flash('#fff7d6', 420, 0.75);
-      FX.shake(14, 650);
-      FX.punch(w * 0.3, sh * 0.6, 1.05, 520);
+      FX.flash('#fff7d6', 480, 0.8);
+      FX.impact(90);
+      FX.chroma(260);
+      FX.shake(16, 720);
+      FX.punch(w * 0.3, sh * 0.6, 1.06, 560);
       await runEvents(res.events, {
         gap: 90,
         onHit: ev => {
           const p = centerOf(ev.uid);
-          FX.burst(p.x, p.y, { count: 30, colors: PAL.holy, speed: [2, 8], life: [500, 1000], size: [2, 6], gravity: -0.05 });
-          FX.burst(p.x, p.y, { count: 18, colors: PAL.fire, speed: [1, 5], life: [600, 1100], size: [3, 6], gravity: -0.08 });
+          FX.burst(p.x, p.y, { count: 36, colors: PAL.holy, speed: [2, 9], life: [500, 1000], size: [2, 6], gravity: -0.05 });
+          FX.burst(p.x, p.y, { count: 22, colors: PAL.fire, speed: [1, 6], life: [600, 1200], size: [3, 7], gravity: -0.08 });
+          FX.embers(p.x, p.y, { count: 14, spread: p.w * 0.6 });
         },
-        before: ev => { if (ev.type === 'shield') { const t = centerOf(ev.uid); FX.beam(c.x, c.y, t.x, t.y, { color: '#fde68a', width: 5, life: 420 }); } }
+        before: ev => { if (ev.type === 'shield') { const t = centerOf(ev.uid); FX.beam(c.x, c.y, t.x, t.y, { color: '#fde68a', width: 6, life: 480 }); } }
       });
       await back();
     },
@@ -1050,10 +1155,11 @@
         onHit: async ev => {
           const c = centerOf(ev.uid);
           sfx('slash');
-          FX.slash(c.x + c.w * 0.15, c.y, { angle: 195, arc: 150, radius: c.h * 0.5, width: 7, color: '#bae6fd', life: 400, dir: -1 });
-          FX.burst(c.x, c.y, { kind: 'spark', count: 24, colors: PAL.steel, speed: [5, 12], life: [200, 450], size: [1.5, 3], len: 2.5, angle: 180, spread: 130 });
-          FX.flash('#ffffff', 160, 0.18);
-          await guard(FX.hitstop(ev.crit ? 95 : 55));
+          FX.bigSlash(c.x + c.w * 0.15, c.y, { angle: 195, arc: 160, radius: c.h * 0.55, width: 8, color: '#bae6fd', life: 430, dir: -1 });
+          FX.streak(c.x, c.y, { size: c.w * 4, width: 5, color: '#bae6fd', life: 440 });
+          FX.burst(c.x, c.y, { kind: 'spark', count: 30, colors: PAL.steel, speed: [5, 13], life: [200, 480], size: [1.5, 3], len: 2.5, angle: 180, spread: 140 });
+          FX.flash('#ffffff', 180, 0.22);
+          await guard(FX.hitstop(ev.crit ? 110 : 60));
         }
       });
       await back();
@@ -1064,40 +1170,62 @@
         onHit: async ev => {
           const c = centerOf(ev.uid);
           sfx('slash');
-          FX.slash(c.x, c.y, { angle: 225, arc: 70, radius: c.h * 0.55, width: 6, color: '#93c5fd', life: 420 });
-          FX.slash(c.x, c.y, { angle: 135, arc: 70, radius: c.h * 0.55, width: 6, color: '#93c5fd', life: 420, dir: -1 });
-          FX.burst(c.x, c.y, { kind: 'shard', count: 14, colors: ['#bfdbfe', '#e0f2fe', '#60a5fa'], speed: [3, 8], life: [400, 800], size: [4, 8], gravity: 0.2, blend: 'source-over', spin: 2 });
-          FX.ring(c.x, c.y + c.h * 0.4, { color: '#93c5fd', r1: 90, width: 5, squash: 0.3 });
-          await guard(FX.hitstop(ev.crit ? 90 : 60));
+          sfx('zap');
+          FX.bolt(c.x + 24, c.y - c.h * 1.5, c.x, c.y + c.h * 0.3, { color: '#93c5fd', width: 3, jitter: 22, forks: 3, life: 320 });
+          FX.bigSlash(c.x, c.y, { angle: 225, arc: 80, radius: c.h * 0.6, width: 7, color: '#93c5fd', life: 450 });
+          FX.bigSlash(c.x, c.y, { angle: 135, arc: 80, radius: c.h * 0.6, width: 7, color: '#93c5fd', life: 450, dir: -1 });
+          FX.burst(c.x, c.y, { kind: 'shard', count: 18, colors: ['#bfdbfe', '#e0f2fe', '#60a5fa'], speed: [3, 9], life: [400, 850], size: [4, 9], gravity: 0.2, blend: 'source-over', spin: 2 });
+          FX.crack(c.x, c.y + c.h * 0.45, { color: '#93c5fd', branches: 6, length: [30, 90] });
+          FX.ring(c.x, c.y + c.h * 0.45, { color: '#93c5fd', r1: 100, width: 6, squash: 0.3, fill: true });
+          await guard(FX.hitstop(ev.crit ? 100 : 65));
         }
       });
       await back();
     },
     async barrage(res, cast) {
-      const back = await motion(cast.uid, 'ultDash', cast.targets[0]);
-      const angles = [200, 20, 150, 330, 250, 90];
-      let k = 0;
-      startCombo();
-      await runEvents(res.events, {
-        hitGap: 70,
-        onHit: async ev => {
-          const c = centerOf(ev.uid);
-          const last = ev.hit === ev.hits - 1;
-          sfx('slash');
-          FX.slash(c.x, c.y, { angle: angles[k++ % angles.length], arc: last ? 240 : 130, radius: c.h * (last ? 0.62 : 0.42), width: last ? 12 : 6, color: last ? '#fde68a' : '#bae6fd', life: last ? 650 : 300, dir: k % 2 ? 1 : -1 });
-          FX.burst(c.x, c.y, { kind: 'spark', count: last ? 44 : 14, colors: PAL.steel, speed: [5, 14], life: [200, 500], size: [1.5, 3], len: 2.5 });
-          if (last) {
-            FX.flash('#ffffff', 340, 0.85);
-            FX.ring(c.x, c.y, { color: '#fde68a', r1: 200, width: 10, life: 700 });
-            FX.punch(c.x, c.y, 1.12, 520);
+      const tgt = cast.targets[0];
+      const t0 = centerOf(tgt);
+      FX.speedLines({ x: t0.x, y: t0.y, color: '#e0f2fe', life: 1700, alpha: 0.45, count: 60 });
+      R.stage.classList.add('dim');
+      try {
+        const back = await motion(cast.uid, 'ultDash', tgt);
+        const angles = [200, 20, 150, 330, 250, 90];
+        let k = 0;
+        startCombo();
+        await runEvents(res.events, {
+          hitGap: 70,
+          onHit: async ev => {
+            const c = centerOf(ev.uid);
+            const last = ev.hit === ev.hits - 1;
+            sfx('slash');
+            if (!last) {
+              FX.bigSlash(c.x, c.y, { angle: angles[k % angles.length], arc: 140, radius: c.h * FX.rand(0.38, 0.55), width: 6, color: k % 2 ? '#bae6fd' : '#e0e7ff', life: 330, dir: k % 2 ? 1 : -1 });
+              FX.streak(c.x, c.y + FX.rand(-20, 20), { size: c.w * 3, width: 3, color: '#bae6fd', life: 280 });
+              k += 1;
+              await guard(FX.hitstop(35));
+              return;
+            }
+            // 마지막 X자 일섬
+            FX.bigSlash(c.x, c.y, { angle: 225, arc: 100, radius: c.h * 0.95, width: 15, color: '#fde68a', life: 720 });
+            FX.bigSlash(c.x, c.y, { angle: 135, arc: 100, radius: c.h * 0.95, width: 15, color: '#fde68a', life: 720, dir: -1 });
+            FX.flare(c.x, c.y, { color: '#fde68a', size: 280, rays: 18, life: 720, streakScale: 5 });
+            FX.ring(c.x, c.y, { color: '#fde68a', r1: 250, width: 12, life: 780, fill: true });
+            FX.burst(c.x, c.y, { kind: 'shard', count: 30, colors: ['#e0f2fe', '#fde68a', '#ffffff'], speed: [4, 12], life: [600, 1100], size: [4, 10], gravity: 0.2, spin: 3, blend: 'source-over' });
+            FX.flash('#ffffff', 380, 0.9);
+            FX.impact(110);
+            FX.chroma(320);
+            FX.punch(c.x, c.y, 1.14, 560);
             sfx('boom');
-            await guard(FX.hitstop(170));
-          } else await guard(FX.hitstop(35));
-        }
-      });
-      await wait(260);
-      hideCombo();
-      await back();
+            await guard(FX.hitstop(190));
+          }
+        });
+        await wait(260);
+        hideCombo();
+        R.stage.classList.remove('dim');
+        await back();
+      } finally {
+        R.stage.classList.remove('dim');
+      }
     },
 
     /* ── 책갈피 ── */
@@ -1106,17 +1234,21 @@
       const back = await motion(cast.uid, 'float', tgt);
       const from = centerOf(cast.uid, 'top');
       sfx('page');
-      FX.glyphs(from.x, from.y, { chars: ['註', '文', '書'], count: 5, color: '#c4b5fd', speed: [0.5, 1.5] });
+      FX.glyphs(from.x, from.y, { chars: ['註', '文', '書', '弱'], count: 8, color: '#c4b5fd', speed: [0.5, 1.8] });
+      FX.swirl(from.x, from.y, { count: 18, colors: PAL.ink, radius: [30, 50], turns: 1, life: [400, 520] });
       const to = centerOf(tgt);
-      await guard(Promise.all([0, 1, 2].map(i => wait(i * 70).then(() => FX.projectile(from, { x: to.x + FX.rand(-15, 15), y: to.y + FX.rand(-15, 15) }, { color: '#a78bfa', trail: PAL.ink, size: 8, duration: 300, arc: 30 + i * 25 })))));
+      await guard(Promise.all([0, 1, 2].map(i => wait(i * 70).then(() => FX.projectile(from, { x: to.x + FX.rand(-15, 15), y: to.y + FX.rand(-15, 15) }, { color: '#a78bfa', trail: PAL.ink, size: 9, duration: 300, arc: 30 + i * 25, spiral: i === 1 })))));
       await runEvents(res.events, {
         onHit: ev => {
           const c = centerOf(ev.uid);
           sfx('ink');
-          FX.burst(c.x, c.y, { count: 30, colors: ['#4c1d95', '#6d28d9', '#1e1b4b'], speed: [2, 6], life: [500, 900], size: [3, 7], blend: 'source-over', gravity: 0.08 });
+          FX.brush(c.x - c.w * 0.65, c.y - c.h * 0.35, c.x + c.w * 0.65, c.y + c.h * 0.3, { width: c.w * 0.2, color: '#ede9fe', glow: '#8b5cf6', bend: 0.18 });
+          later(() => FX.brush(c.x + c.w * 0.6, c.y - c.h * 0.4, c.x - c.w * 0.55, c.y + c.h * 0.35, { width: c.w * 0.16, color: '#f5f3ff', glow: '#a78bfa', bend: -0.2 }), dur(90));
+          FX.flare(c.x, c.y, { color: '#a78bfa', size: c.h * 0.95, rays: 10, life: 400 });
+          FX.burst(c.x, c.y, { count: 30, colors: ['#4c1d95', '#6d28d9', '#1e1b4b'], speed: [2, 7], life: [500, 900], size: [3, 7], blend: 'source-over', gravity: 0.1 });
           FX.burst(c.x, c.y, { count: 14, colors: PAL.ink, speed: [1, 4], life: [500, 900], size: [2, 4] });
-          FX.ring(c.x, c.y, { color: '#a78bfa', r1: c.h * 0.6, width: 6 });
-          FX.glyphs(c.x, c.y, { chars: ['弱', '註'], count: 3, color: '#ddd6fe' });
+          FX.ring(c.x, c.y, { color: '#a78bfa', r1: c.h * 0.7, width: 6, fill: true });
+          FX.glyphs(c.x, c.y, { chars: ['弱', '註'], count: 4, color: '#ddd6fe' });
         }
       });
       await back();
@@ -1125,12 +1257,14 @@
       const back = await motion(cast.uid, 'float');
       const c = centerOf(cast.uid, 'top');
       sfx('page');
-      FX.burst(c.x, c.y, { kind: 'leaf', count: 22, colors: PAL.leaf, speed: [1, 4], angle: -90, spread: 160, life: [800, 1300], size: [3, 6], blend: 'source-over', gravity: 0.02 });
-      FX.ring(c.x, c.y, { color: '#86efac', r1: 120, width: 4, life: 700 });
-      await wait(200);
+      FX.flare(c.x, c.y, { color: '#86efac', size: 130, rays: 12, life: 540 });
+      FX.swirl(c.x, c.y, { count: 22, kind: 'leaf', colors: PAL.leaf, radius: [30, 50], expand: 1.6, turns: 1, life: [800, 1100], size: [3, 6], blend: 'source-over' });
+      FX.ring(c.x, c.y, { color: '#86efac', r1: 140, width: 4, life: 720, fill: true });
+      FX.glyphs(c.x, c.y, { chars: ['書', '癒', '生'], count: 5, color: '#bbf7d0' });
+      await wait(220);
       await runEvents(res.events, {
         gap: 90,
-        before: ev => { if (ev.type === 'heal') { const t = centerOf(ev.uid); FX.beam(c.x, c.y, t.x, t.y, { color: '#86efac', width: 3, life: 380 }); } }
+        before: ev => { if (ev.type === 'heal') { const t = centerOf(ev.uid); FX.beam(c.x, c.y, t.x, t.y, { color: '#86efac', width: 4, life: 420 }); } }
       });
       await back();
     },
@@ -1139,20 +1273,29 @@
       const back = await motion(cast.uid, 'ultFloat', tgt);
       const t = centerOf(tgt, 'feet');
       const tc = centerOf(tgt);
+      const cc = centerOf(cast.uid, 'top');
       sfx('page');
-      FX.dom('sigil jade', t.x, t.y - 4, 1700, sigil('#a7f3d0'), { '--w': tc.w * 2.4 + 'px' });
-      FX.glyphs(tc.x, tc.y, { chars: ['終', '章', '書', '智'], count: 10, color: '#d9f99d', speed: [0.4, 1.4] });
+      FX.speedLines({ x: tc.x, y: tc.y, color: '#ecfccb', life: 1200, alpha: 0.35 });
+      FX.dom('sigil jade', t.x, t.y - 4, 1800, sigil('#a7f3d0', '終章書智結末物語'), { '--w': tc.w * 2.6 + 'px' });
+      FX.glyphs(tc.x, tc.y, { chars: ['終', '章', '書', '智'], count: 12, color: '#d9f99d', speed: [0.4, 1.4] });
+      FX.swirl(tc.x, tc.y, { count: 20, kind: 'leaf', colors: ['#fffbeb', '#fef3c7', '#ffffff'], radius: [tc.w, tc.w * 1.4], inward: true, turns: 1.3, life: [450, 560], size: [5, 8], blend: 'source-over' });
+      FX.beam(cc.x, cc.y, tc.x, tc.y, { color: '#a7f3d0', width: 6, life: 620 });
       await wait(480);
-      FX.pillar(t.x, t.y, { width: 96, height: t.y + 60, color: '#a7f3d0', life: 950 });
+      FX.pillar(t.x, t.y, { width: 120, height: t.y + 60, color: '#a7f3d0', life: 1100 });
+      FX.flare(tc.x, tc.y, { color: '#ecfccb', size: 250, rays: 16, life: 720, streakScale: 5 });
+      FX.crack(t.x, t.y, { color: '#a7f3d0', branches: 8, length: [50, 120] });
       sfx('boom');
-      FX.flash('#ecfccb', 380, 0.6);
-      FX.shake(12, 520);
+      FX.flash('#ecfccb', 420, 0.7);
+      FX.impact(90);
+      FX.chroma(240);
+      FX.shake(13, 560);
+      FX.punch(tc.x, tc.y, 1.08, 520);
       await runEvents(res.events, {
         gap: 80,
         onHit: ev => {
           const c = centerOf(ev.uid);
-          FX.burst(c.x, c.y, { count: 40, colors: [...PAL.leaf, '#fde68a'], speed: [2, 9], life: [500, 1100], size: [2, 6] });
-          FX.ring(c.x, c.y, { color: '#d9f99d', r1: c.h * 0.9, width: 8, life: 700 });
+          FX.burst(c.x, c.y, { count: 44, colors: [...PAL.leaf, '#fde68a'], speed: [2, 9], life: [500, 1100], size: [2, 6] });
+          FX.ring(c.x, c.y, { color: '#d9f99d', r1: c.h * 0.95, width: 8, life: 720, fill: true });
         }
       });
       await back();
@@ -1161,13 +1304,18 @@
     /* ── 적 ── */
     async zap(res, cast) {
       const back = await motion(cast.uid, 'pulse');
+      const a0 = centerOf(cast.uid);
+      FX.swirl(a0.x, a0.y, { count: 12, colors: ['#fde68a', '#ffffff'], radius: [20, 36], inward: true, turns: 1, life: [220, 280] });
       await runEvents(res.events, {
         onHit: async ev => {
           const a = centerOf(cast.uid), c = centerOf(ev.uid);
           sfx('zap');
-          FX.bolt(a.x, a.y, c.x, c.y, { color: '#fde68a', width: 2.4, life: 280 });
-          FX.burst(c.x, c.y, { kind: 'spark', count: 16, colors: ['#fde68a', '#ffffff'], speed: [3, 8], life: [150, 350], size: [1, 2], len: 2 });
-          await guard(FX.hitstop(40));
+          FX.bolt(a.x, a.y, c.x, c.y, { color: '#fde68a', width: 2.6, life: 300, forks: 3 });
+          later(() => FX.bolt(a.x, a.y, c.x, c.y, { color: '#fef9c3', width: 1.6, life: 200, forks: 1 }), dur(60));
+          FX.flare(c.x, c.y, { color: '#fde68a', size: 90, rays: 10, life: 320 });
+          FX.burst(c.x, c.y, { kind: 'spark', count: 18, colors: ['#fde68a', '#ffffff'], speed: [3, 9], life: [150, 380], size: [1, 2], len: 2 });
+          FX.flash('#fef9c3', 140, 0.18);
+          await guard(FX.hitstop(45));
         }
       });
       await back();
@@ -1178,8 +1326,11 @@
         onHit: ev => {
           const c = centerOf(ev.uid);
           sfx('splash');
-          FX.burst(c.x, c.y, { count: 26, colors: PAL.venom, speed: [2, 6], life: [400, 800], size: [3, 6], gravity: 0.12, blend: 'source-over' });
-          FX.bubbles(c.x, c.y, { count: 8, color: 'rgba(190,242,100,.8)' });
+          FX.flare(c.x, c.y, { color: '#bef264', size: 80, rays: 8, life: 300 });
+          FX.burst(c.x, c.y, { count: 30, colors: PAL.venom, speed: [2, 7], life: [400, 850], size: [3, 7], gravity: 0.15, blend: 'source-over' });
+          FX.burst(c.x, c.y - c.h * 0.2, { count: 10, colors: ['#84cc16', '#365314'], speed: [0.2, 0.8], angle: 90, spread: 40, life: [700, 1100], size: [3, 5], gravity: 0.08, blend: 'source-over', jitter: c.w * 0.3 });
+          FX.ring(c.x, c.y, { color: '#a3e635', r1: c.h * 0.6, width: 5, fill: true });
+          FX.bubbles(c.x, c.y, { count: 10, color: 'rgba(190,242,100,.85)' });
         }
       });
       await back();
@@ -1190,8 +1341,8 @@
         onHit: async ev => {
           const c = centerOf(ev.uid);
           sfx('slash');
-          FX.slash(c.x - c.w * 0.1, c.y, { angle: 345, arc: 140, radius: c.h * 0.48, width: 6, color: '#f0abfc', life: 380 });
-          FX.burst(c.x, c.y, { count: 18, colors: PAL.violet, speed: [2, 7], life: [300, 600], size: [2, 4] });
+          FX.bigSlash(c.x - c.w * 0.1, c.y, { angle: 345, arc: 150, radius: c.h * 0.5, width: 7, color: '#f0abfc', life: 400 });
+          FX.burst(c.x, c.y, { count: 22, colors: PAL.violet, speed: [2, 7], life: [300, 650], size: [2, 5] });
           await guard(FX.hitstop(45));
         }
       });
@@ -1201,20 +1352,34 @@
       const back = await motion(cast.uid, 'pulse');
       const c = centerOf(cast.uid);
       sfx('buff');
-      FX.ring(c.x, c.y, { color: '#fde68a', r1: 160, width: 6, life: 700 });
-      FX.flash('#fde68a', 260, 0.15);
+      FX.flare(c.x, c.y, { color: '#fde68a', size: 150, rays: 14, life: 600 });
+      FX.ring(c.x, c.y, { color: '#fde68a', r1: 180, width: 6, life: 720, fill: true });
+      FX.ring(c.x, c.y, { color: '#fca5a5', r1: 120, width: 4, life: 560 });
+      FX.flash('#fde68a', 280, 0.16);
       await runEvents(res.events, {
-        before: ev => { if (ev.type === 'status') { const t = centerOf(ev.uid); FX.ring(t.x, t.y, { color: '#fca5a5', r1: t.h * 0.6, width: 4 }); FX.burst(t.x, t.y, { count: 12, colors: ['#fca5a5', '#fde68a'], speed: [1, 3], angle: -90, spread: 90, life: [500, 800] }); } }
+        before: ev => {
+          if (ev.type !== 'status') return;
+          const t = centerOf(ev.uid);
+          FX.beam(c.x, c.y, t.x, t.y, { color: '#fde68a', width: 3, life: 380 });
+          FX.swirl(t.x, t.y, { count: 12, colors: ['#fca5a5', '#fde68a'], radius: [t.w * 0.5, t.w * 0.6], squash: 0.5, turns: 1, rise: t.h * 0.5, life: [600, 800] });
+        }
       });
       await back();
     },
     async toxin(res, cast) {
       const back = await motion(cast.uid, 'pulse');
+      const c = centerOf(cast.uid);
       sfx('splash');
-      FX.flash('#365314', 500, 0.35);
-      cast.targets.forEach(uid => { const t = centerOf(uid); FX.burst(t.x, t.y - t.h * 0.8, { count: 26, colors: PAL.venom, speed: [1, 3], angle: 90, spread: 50, gravity: 0.25, life: [500, 900], size: [3, 6], blend: 'source-over', jitter: 40 }); });
-      await wait(250);
-      await runEvents(res.events, { onHit: ev => { const c = centerOf(ev.uid); FX.bubbles(c.x, c.y, { count: 10, color: 'rgba(190,242,100,.85)' }); } });
+      FX.flash('#365314', 520, 0.38);
+      FX.dom('sigil', c.x, c.y, 1300, sigil('#bef264', '毒深海腐蝕沈'), { '--w': c.w * 2 + 'px' });
+      FX.flare(c.x, c.y, { color: '#bef264', size: 170, rays: 14, life: 620 });
+      cast.targets.forEach(uid => {
+        const t = centerOf(uid);
+        FX.burst(t.x, t.y - t.h * 0.9, { count: 30, colors: PAL.venom, speed: [1, 3], angle: 90, spread: 50, gravity: 0.25, life: [500, 900], size: [3, 7], blend: 'source-over', jitter: 46 });
+        FX.swirl(t.x, t.y, { count: 10, kind: 'bubble', colors: ['rgba(190,242,100,.85)'], radius: [t.w * 0.4, t.w * 0.6], squash: 0.5, rise: t.h * 0.6, life: [700, 900], size: [3, 6], blend: 'source-over' });
+      });
+      await wait(260);
+      await runEvents(res.events, { onHit: ev => { const t = centerOf(ev.uid); FX.flare(t.x, t.y, { color: '#bef264', size: 90, rays: 8, life: 320 }); FX.bubbles(t.x, t.y, { count: 10, color: 'rgba(190,242,100,.85)' }); } });
       await back();
     },
     async smash(res, cast) {
@@ -1223,21 +1388,26 @@
         onHit: async ev => {
           const c = centerOf(ev.uid);
           sfx('splash');
-          FX.ring(c.x, c.y + c.h * 0.4, { color: '#7dd3fc', r1: 140, width: 8, squash: 0.35, life: 600 });
-          FX.burst(c.x, c.y + c.h * 0.3, { count: 40, colors: PAL.sea, speed: [3, 9], angle: -90, spread: 120, gravity: 0.3, life: [500, 900], size: [3, 7] });
-          FX.shake(10, 380);
-          await guard(FX.hitstop(70));
+          FX.flare(c.x, c.y, { color: '#bae6fd', size: c.h * 1.2, rays: 12, life: 420 });
+          splashOn([ev.uid], PAL.sea);
+          FX.crack(c.x, c.y + c.h * 0.45, { color: '#7dd3fc', branches: 7 });
+          FX.ring(c.x, c.y + c.h * 0.4, { color: '#7dd3fc', r1: 160, width: 9, squash: 0.35, life: 640, fill: true });
+          FX.shake(11, 400);
+          FX.chroma(160);
+          await guard(FX.hitstop(75));
         }
       });
       await back();
     },
     async tsunami(res, cast) {
       const back = await motion(cast.uid, 'pulse');
+      const { w } = stageSize();
+      const row = rowOf(cast.targets);
       sfx('water');
-      FX.flash('#0c4a6e', 500, 0.3);
-      sweepAcross(cast.targets, PAL.sea);
-      await wait(260);
-      await runEvents(res.events, { onHit: () => FX.shake(6, 260) });
+      FX.flash('#0c4a6e', 500, 0.32);
+      FX.wave({ from: -160, to: w + 260, y: row.y, height: row.h * 1.25, life: 1050 });
+      await wait(380);
+      await runEvents(res.events, { onHit: ev => { splashOn([ev.uid], PAL.sea); FX.shake(6, 260); } });
       await back();
     },
     async gaze(res, cast) {
@@ -1245,17 +1415,20 @@
       const a = centerOf(cast.uid, 'top');
       const t = centerOf(cast.targets[0]);
       sfx('gaze');
-      FX.beam(a.x, a.y, t.x, t.y, { color: '#e879f9', width: 7, life: 520 });
-      FX.ring(a.x, a.y, { color: '#e879f9', r1: 60, width: 4 });
+      FX.dom('sigil', a.x, a.y, 1000, sigil('#e879f9', '眼深淵凝視'), { '--w': '110px' });
+      FX.flare(a.x, a.y, { color: '#e879f9', size: 110, rays: 10, life: 520 });
+      FX.beam(a.x, a.y, t.x, t.y, { color: '#e879f9', width: 9, life: 560 });
+      FX.swirl(t.x, t.y, { count: 16, colors: PAL.violet, radius: [t.w * 0.6, t.w * 0.8], inward: true, turns: 1.2, life: [380, 460] });
       await wait(200);
-      await runEvents(res.events, { onHit: ev => { const c = centerOf(ev.uid); FX.burst(c.x, c.y, { count: 20, colors: ['#f0abfc', '#e879f9', '#ffffff'], speed: [1, 5], life: [400, 800] }); } });
+      await runEvents(res.events, { onHit: ev => { const c = centerOf(ev.uid); FX.flare(c.x, c.y, { color: '#f0abfc', size: 100, rays: 10, life: 360 }); FX.burst(c.x, c.y, { count: 22, colors: ['#f0abfc', '#e879f9', '#ffffff'], speed: [1, 5], life: [400, 800] }); } });
       await back();
     },
     async summon(res, cast) {
       const back = await motion(cast.uid, 'pulse');
       const c = centerOf(cast.uid);
       sfx('bubbles');
-      FX.ring(c.x, c.y, { color: '#c084fc', r1: 120, width: 4 });
+      FX.swirl(c.x, c.y + c.h * 0.3, { count: 26, colors: ['#c084fc', '#7dd3fc', '#ffffff'], radius: [c.w * 0.3, c.w * 0.5], squash: 0.35, expand: 1.4, turns: 2, life: [700, 900] });
+      FX.ring(c.x, c.y, { color: '#c084fc', r1: 140, width: 5, fill: true });
       FX.bubbles(c.x, c.y, { count: 16, spread: 70 });
       await wait(300);
       await runEvents(res.events);
@@ -1264,20 +1437,25 @@
     async tide(res, cast) {
       const back = await motion(cast.uid, 'pulse');
       const { w, h: sh } = stageSize();
-      FX.flash('#082f49', 700, 0.55);
+      const c = centerOf(cast.uid);
+      const row = rowOf(cast.targets);
+      FX.flash('#082f49', 760, 0.6);
+      FX.speedLines({ x: c.x, y: c.y, color: '#bae6fd', life: 1300, alpha: 0.35 });
+      FX.flare(c.x, c.y, { color: '#7dd3fc', size: 220, rays: 16, life: 760, streakScale: 5 });
       sfx('water');
-      sweepAcross(cast.targets, PAL.sea);
-      await wait(200);
-      sweepAcross(cast.targets, ['#ffffff', '#bae6fd', '#38bdf8']);
-      FX.shake(16, 800);
-      FX.punch(w * 0.7, sh * 0.6, 1.04, 600);
-      await wait(260);
-      await runEvents(res.events, { onHit: () => FX.shake(8, 260) });
+      FX.wave({ from: -260, to: w + 360, y: row.y + 10, height: row.h * 2.1, length: row.h * 6, life: 1300 });
+      later(() => FX.wave({ from: -200, to: w + 300, y: row.y + 4, height: row.h * 1.2, life: 1100, color: 'rgba(14,165,233,0.8)' }), dur(220));
+      FX.shake(18, 900);
+      FX.punch(w * 0.7, sh * 0.6, 1.05, 640);
+      await wait(520);
+      FX.impact(90);
+      FX.chroma(280);
+      await runEvents(res.events, { onHit: ev => { splashOn([ev.uid], ['#ffffff', '#bae6fd', '#38bdf8']); FX.shake(9, 280); } });
       await back();
     },
     async basic(res, cast) {
       const back = await motion(cast.uid, cast.targets.length === 1 ? 'lunge' : 'pulse', cast.targets[0]);
-      await runEvents(res.events);
+      await runEvents(res.events, { onHit: ev => { const c = centerOf(ev.uid); FX.flare(c.x, c.y, { size: 80, rays: 8, life: 300 }); } });
       await back();
     }
   };
@@ -1314,12 +1492,13 @@
     await wait(1000);
     cs.classList.add('cut');
     sfx('ultCut');
-    FX.flash('#ffffff', 300, 0.9);
-    FX.shake(10, 420);
-    for (let i = 0; i < 22; i++) {
+    FX.flash('#ffffff', 320, 0.95);
+    FX.shake(12, 460);
+    FX.impact(80);
+    for (let i = 0; i < 30; i++) {
       const s = h('i');
-      const size = FX.rand(10, 34);
-      s.style.cssText = `left:${FX.rand(5, 95)}%;top:${FX.rand(30, 70)}%;width:${size}px;height:${size * 1.5}px;--tx:${FX.rand(-1, 1) * 420}px;--ty:${FX.rand(-1, 1) * 360}px;--rot:${FX.rand(-540, 540)}deg`;
+      const size = FX.rand(10, 38);
+      s.style.cssText = `left:${FX.rand(5, 95)}%;top:${FX.rand(30, 70)}%;width:${size}px;height:${size * 1.5}px;--tx:${FX.rand(-1, 1) * 460}px;--ty:${FX.rand(-1, 1) * 380}px;--rot:${FX.rand(-540, 540)}deg`;
       shards.appendChild(s);
     }
     await wait(460);
@@ -1335,12 +1514,18 @@
     if (!u || !v) return;
     await wait(300);
     sfx('roar');
-    FX.flash('#b91c1c', 600, 0.45);
-    FX.shake(14, 750);
-    v.el.classList.add('enraged');
     const c = centerOf(ev.uid);
-    FX.ring(c.x, c.y, { color: '#ef4444', r1: 240, width: 10, life: 900 });
-    FX.burst(c.x, c.y, { count: 50, colors: PAL.blood, speed: [2, 7], life: [600, 1200], size: [2, 6], gravity: -0.04 });
+    FX.flash('#b91c1c', 650, 0.5);
+    FX.shake(16, 800);
+    FX.impact(90);
+    FX.chroma(360);
+    FX.speedLines({ x: c.x, y: c.y, color: '#fecaca', life: 1100, alpha: 0.4 });
+    v.el.classList.add('enraged');
+    FX.flare(c.x, c.y, { color: '#ef4444', size: 260, rays: 18, life: 900, streakScale: 5 });
+    FX.ring(c.x, c.y, { color: '#ef4444', r1: 260, width: 10, life: 950, fill: true });
+    FX.crack(c.x, c.y + c.h * 0.45, { color: '#ef4444', branches: 9, length: [60, 150] });
+    FX.burst(c.x, c.y, { count: 60, colors: PAL.blood, speed: [2, 8], life: [600, 1300], size: [2, 6], gravity: -0.04 });
+    FX.embers(c.x, c.y, { count: 24, spread: c.w * 0.7, colors: ['#ef4444', '#fb7185', '#fecaca'] });
     renderStatuses(v, u);
     renderMoxie(v, u, ev.moxie);
     updateBossBar(u, u.hp);
@@ -1533,6 +1718,7 @@
     finished = true;
     autoOn = false;
     updateButtons();
+    if (victory) celebrate();
     await wait(victory ? 1100 : 900);
     Sound.stopBgm();
     sfx(victory ? 'victory' : 'defeat');
@@ -1583,6 +1769,19 @@
     $$('.rs-grid b[data-count]', panel).forEach(b => countUp(b, Number(b.dataset.count)));
     stars.forEach((s, i) => { if (s.ok) later(() => sfx('star', { i }), 500 + i * 260); });
     later(() => sfx('stamp'), 1350);
+  }
+
+  // 승리 축하 불꽃놀이
+  function celebrate() {
+    const { w, h: sh } = stageSize();
+    for (let i = 0; i < 10; i++) {
+      later(() => {
+        const x = FX.rand(w * 0.12, w * 0.88), y = FX.rand(sh * 0.12, sh * 0.42);
+        guard(FX.projectile({ x: FX.rand(w * 0.3, w * 0.7), y: sh }, { x, y }, { color: '#fff7d6', trail: ['#fde68a', '#ffffff'], size: 5, duration: 460 }))
+          .then(() => { FX.firework(x, y); sfx('firework'); })
+          .catch(() => {});
+      }, i * 300);
+    }
   }
 
   function countUp(el, to) {
@@ -1712,6 +1911,7 @@
     R.banner.className = '';
     R.cutscene.className = '';
     document.body.classList.remove('executing', 'dragging', 'drop-play');
+    R.stage.classList.remove('dim', 'impact', 'chroma');
     selectedUid = null;
     busy = true;
     autoRunning = false;
@@ -1865,7 +2065,7 @@
   /* ---------- 초기화 ---------- */
   buildScenery();
   FX.init(
-      { canvas: $('#fx-canvas'), ambCanvas: $('#ambient-canvas'), shakeEl: R.shake, camEl: R.camera, flashEl: $('#flash'), floatEl: $('#float-layer'), domEl: $('#fx-dom') },
+      { canvas: $('#fx-canvas'), ambCanvas: $('#ambient-canvas'), stageEl: R.stage, skyEl: $('.bg-sky'), shakeEl: R.shake, camEl: R.camera, flashEl: $('#flash'), floatEl: $('#float-layer'), domEl: R.fxDom },
       { speed: () => settings.speed, shake: () => settings.shake, lite: window.innerWidth < 700 }
   );
   bindUI();
