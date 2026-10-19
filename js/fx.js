@@ -272,7 +272,8 @@
 
   function add(p) {
     const q = Object.assign({ x: 0, y: 0, vx: 0, vy: 0, age: 0, life: 600, size: 3, alpha: 1, rot: 0, vr: 0, color: '#fff', kind: 'glow', seed: Math.random() * 10 }, p);
-    if (opts.lite && parts.length > 260 && (q.kind === 'glow' || q.kind === 'spark')) return q;
+    // 저사양 모드의 개수 제한은 장식용 파티클에만 적용합니다. (발사체처럼 끝나기를 기다리는 파티클은 제외)
+    if (opts.lite && parts.length > 260 && !q.done && !q.update && (q.kind === 'glow' || q.kind === 'spark')) return q;
     parts.push(q);
     return q;
   }

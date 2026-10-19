@@ -52,7 +52,7 @@
       this.phase = 'idle';
       this.allies = PARTY.map((key, slot) => this.makeAlly(key, slot));
       this.enemies = [];
-      this.stats = { damage: {}, healing: {}, shielded: {}, maxHit: 0, maxHitBy: null, merges: 0, ults: 0, cards: 0, taken: 0, deaths: 0 };
+      this.stats = { damage: {}, healing: {}, shielded: {}, maxHit: 0, maxHitBy: null, merges: 0, ults: 0, taken: 0, deaths: 0 };
       PARTY.forEach(k => { this.stats.damage[k] = 0; this.stats.healing[k] = 0; this.stats.shielded[k] = 0; });
     }
 
@@ -187,7 +187,6 @@
 
     refillHand() {
       const alive = new Set(this.aliveAllies.map(a => a.key));
-      const before = new Set(this.hand.map(c => c.uid));
       this.hand = this.hand.filter(c => alive.has(c.owner));
       this.settleMerges(false);
       const ults = this.spawnUlts();
@@ -198,7 +197,7 @@
         this.hand.push(this.makeCard(this.pick(pool)));
         this.settleMerges(false);
       }
-      return { drawn: this.hand.filter(c => !before.has(c.uid)).map(c => c.uid), ults };
+      return { ults };
     }
 
     snapshot() {
@@ -264,9 +263,8 @@
     planIntents() {
       for (const e of this.aliveEnemies) {
         const def = ENEMIES[e.key];
-        const n = def.actions + (e.phase === 2 ? def.phase2Actions || 0 : 0);
         e.intents = [];
-        for (let i = 0; i < n; i++) {
+        for (let i = 0; i < def.actions; i++) {
           const skillId = i === 0 && def.ult && e.moxie >= RULES.moxieMax ? def.ult : this.chooseEnemySkill(e);
           e.intents.push({ skillId, targetUid: this.chooseEnemyTarget(SKILLS[skillId]) });
         }
@@ -309,7 +307,6 @@
       const caster = this.ally(item.card.owner);
       const skill = SKILLS[item.card.skillId];
       if (!caster.alive) return { item, caster, events: [{ type: 'fizzle', uid: caster.uid }] };
-      this.stats.cards += 1;
       const events = this.useSkill(caster, skill, item.card.rank - 1, item.targetUid);
       if (skill.ult) { caster.moxie = 0; this.stats.ults += 1; } else this.gainMoxie(caster, 1);
       events.push({ type: 'moxie', uid: caster.uid, value: caster.moxie });
@@ -337,7 +334,6 @@
           e.moxie = skill.ult ? 0 : Math.min(RULES.moxieMax, e.moxie + 1);
           events.push({ type: 'moxie', uid: e.uid, value: e.moxie });
         }
-        intent.done = true;
         return { caster: e, skill, rank: 1, intentIndex: step.i, events };
       }
       return null;
@@ -611,5 +607,5 @@
     return best;
   }
 
-  return { Battle, afflatusMult, autoChoice, at, isDebuff };
+  return { Battle, afflatusMult, autoChoice, at, isDebuff, mulberry32 };
 });
