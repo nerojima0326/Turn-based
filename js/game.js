@@ -143,8 +143,8 @@
     enemy: [{ x: 37, y: 22 }, { x: 22.5, y: 13 }, { x: 9.5, y: 23 }]
   };
   const POS_PORTRAIT = {
-    ally: [{ x: 22, y: 14 }, { x: 50, y: 5 }, { x: 78, y: 14 }],
-    enemy: [{ x: 22, y: 45 }, { x: 50, y: 50 }, { x: 78, y: 45 }]
+    ally: [{ x: 20, y: 11 }, { x: 50, y: 3 }, { x: 80, y: 11 }],
+    enemy: [{ x: 20, y: 44 }, { x: 50, y: 45 }, { x: 80, y: 44 }]
   };
   let portrait = false;
   const defOf = u => (u.side === 'ally' ? CHARACTERS[u.key] : ENEMIES[u.key]);
@@ -156,8 +156,9 @@
     el.style.zIndex = String(100 - Math.round(pos.y));
   }
 
+  // 휴대폰을 세로로 들었을 때(화면이 세로로 길 때)는 적이 위, 아군이 아래에 섭니다.
   function layoutUnits() {
-    portrait = R.stage.clientHeight > R.stage.clientWidth * 1.05;
+    portrait = window.innerHeight > window.innerWidth;
     R.stage.classList.toggle('portrait', portrait);
     if (!battle) return;
     [...battle.allies, ...battle.enemies].forEach(u => { const v = views.get(u.uid); if (v) placeUnit(v.el, u.side, u.slot); });
@@ -673,6 +674,7 @@
   /* ---------- 카드 상세 ---------- */
   function showDetail(card) {
     if (!battle) return;
+    R.detail.classList.toggle('show', !!card);
     if (!card) {
       const hint = battle.phase !== 'planning' ? '전투가 진행 중입니다…'
         : battle.ap === 0 ? '행동력을 모두 사용했습니다. <b>전투 실행</b>을 눌러 주세요.'
