@@ -284,6 +284,11 @@
       [70, 73].forEach(f => tone({ f, f2: f * 0.64, type: 'sawtooth', a: 0.1, d: 1.3, g: 0.15, filter: { type: 'lowpass', f: 400, f2: 900, q: 3 }, wet: 0.5 }));
       noise({ a: 0.2, d: 1.0, g: 0.18, filter: { type: 'bandpass', f: 300, f2: 700, q: 1 }, wet: 0.5 });
     },
+    firework: () => {
+      noise({ d: 0.12, g: 0.3, filter: { type: 'highpass', f: 1200 }, wet: 0.5 });
+      tone({ f: 110, f2: 40, d: 0.35, g: 0.3, wet: 0.4 });
+      for (let i = 0; i < 9; i++) noise({ t: 0.15 + Math.random() * 0.6, d: 0.025, g: 0.07, filter: { type: 'highpass', f: 5000 }, wet: 0.6 });
+    },
     star: o => tone({ f: mtof(84 + (o.i || 0) * 4), type: 'triangle', d: 0.4, g: 0.09, wet: 0.6 }),
     stamp: () => { tone({ f: 120, f2: 60, d: 0.25, g: 0.4 }); noise({ d: 0.2, g: 0.2, filter: { type: 'lowpass', f: 1600 } }); },
     victory: () => {
