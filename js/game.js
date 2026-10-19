@@ -45,6 +45,17 @@
     return new Promise((res, rej) => setTimeout(() => (t === gameToken ? res() : rej(new Abort())), ms / settings.speed));
   };
   const dur = ms => ms / settings.speed;
+  // 재시작·타이틀 이동 전에 시작된 연출(배너, 이동, 발사체, 히트스톱)이 끝나면
+  // 이어서 새 게임을 건드리지 않도록 중단시킵니다.
+  const guard = p => {
+    const t = gameToken;
+    return Promise.resolve(p).then(v => { if (t !== gameToken) throw new Abort(); return v; });
+  };
+  // 같은 이유로, 지연 실행되는 연출도 그사이 게임이 바뀌었으면 건너뜁니다.
+  const later = (fn, ms) => {
+    const t = gameToken;
+    setTimeout(() => { if (t === gameToken) fn(); }, ms);
+  };
 
   const sfxLast = {};
   function sfx(name, opt) {
@@ -70,6 +81,7 @@
   let busy = true;
   let autoOn = false;
   let autoRunning = false;
+  let finished = false;
   let selectedUid = null;
   const views = new Map();
   const prevRanks = new Map();
@@ -566,10 +578,10 @@
       const keep = R.hand.querySelector(`[data-uid="${m.keep}"]`);
       if (g && keep) flyNode(g.node, g.rect, keep.getBoundingClientRect(), { scale: 1, ms: 260, delay: i * 120 });
       const card = battle.hand.find(c => c.uid === m.keep);
-      if (card) setTimeout(() => moxieGainText(card.owner), 200 + i * 120);
+      if (card) later(() => moxieGainText(card.owner), 200 + i * 120);
     });
-    if (res.merges.length) setTimeout(() => sfx('merge'), 160);
-    if (res.ults.length) { setTimeout(() => sfx('ultReady'), 380); toast('최종 술식 카드가 준비되었습니다', 'gold'); }
+    if (res.merges.length) later(() => sfx('merge'), 160);
+    if (res.ults.length) { later(() => sfx('ultReady'), 380); toast('최종 술식 카드가 준비되었습니다', 'gold'); }
     renderSlots(true);
     renderAP();
     battle.allies.forEach(a => { const v = views.get(a.uid); if (v) renderMoxie(v, a); });
@@ -599,19 +611,18 @@
     a.finished.then(() => node.remove(), () => node.remove());
   }
 
-  function doUndo() {
-    if (!planReady() || !battle.undo()) return;
-    selectedUid = null;
-    sfx('undo');
+  function refreshPlanning() {
     renderHand(); renderSlots(); renderAP(); syncAll(); updateButtons(); showDetail(null);
   }
 
-  function doReset() {
-    if (!planReady() || !battle.resetPlanning()) return;
+  function restorePlanning(restore) {
+    if (!planReady() || !restore()) return;
     selectedUid = null;
     sfx('undo');
-    renderHand(); renderSlots(); renderAP(); syncAll(); updateButtons(); showDetail(null);
+    refreshPlanning();
   }
+  const doUndo = () => restorePlanning(() => battle.undo());
+  const doReset = () => restorePlanning(() => battle.resetPlanning());
 
   /* ---------- 행동 슬롯 · 행동력 · 버튼 ---------- */
   function renderSlots(popLast = false) {
@@ -729,7 +740,9 @@
     b.className = 'show ' + kind;
     b.style.setProperty('--bn-dur', dur(ms) + 'ms');
     const t = gameToken;
-    return new Promise(res => setTimeout(() => { if (t === gameToken) b.className = ''; res(); }, dur(ms)));
+    const shown = guard(new Promise(res => setTimeout(() => { if (t === gameToken) b.className = ''; res(); }, dur(ms))));
+    shown.catch(() => {}); // 기다리지 않고 띄우는 배너도 있으므로, 재시작으로 인한 중단을 처리된 것으로 표시
+    return shown;
   }
 
   function showCallout(caster, skill, rank) {
@@ -755,7 +768,7 @@
     void R.combo.offsetWidth;
     R.combo.className = 'show';
   }
-  function hideCombo() { R.combo.className = R.combo.className ? 'show out' : ''; setTimeout(() => { R.combo.className = ''; }, 400); }
+  function hideCombo() { R.combo.className = R.combo.className ? 'show out' : ''; later(() => { R.combo.className = ''; }, 400); }
 
   function hurt(u, v, ev, c) {
     const dir = u.side === 'enemy' ? -1 : 1;
@@ -794,7 +807,7 @@
         [{ opacity: 1, filter: 'brightness(1)', transform: 'none' }, { opacity: 0.9, filter: 'brightness(2.6) saturate(.4)', transform: 'scale(1.06)', offset: 0.3 }, { opacity: 0, filter: 'brightness(4) blur(8px)', transform: 'translateY(-30px) scale(1.15)' }],
         { duration: dur(1000), easing: 'ease-in', fill: 'forwards' }
       );
-      if (u.boss) setTimeout(() => R.bossBar.classList.add('hidden'), dur(900));
+      if (u.boss) later(() => R.bossBar.classList.add('hidden'), dur(900));
     } else {
       sfx('allyDown');
       FX.text(c.x, c.y - 70, '전투 불능', 'down', 1400);
@@ -923,10 +936,10 @@
     const m = M(dx, dy, dx <= 0 ? 1 : -1);
     if (m.sfx) sfx(m.sfx);
     const go = v.mover.animate(m.go, { duration: dur(m.t), easing: m.ease || 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' });
-    await go.finished;
+    await guard(go.finished);
     return async () => {
       const back = v.mover.animate([m.go[m.go.length - 1], { transform: 'none' }], { duration: dur(m.back), easing: 'cubic-bezier(.4,0,.2,1)', fill: 'forwards' });
-      await back.finished;
+      await guard(back.finished);
       go.cancel();
       back.cancel();
     };
@@ -977,7 +990,7 @@
       const back = await motion(cast.uid, 'hover', tgt);
       const from = centerOf(cast.uid, 'top');
       sfx('fireball');
-      await FX.projectile(from, centerOf(tgt), { color: '#ffb347', trail: ['#ff6a00', '#ffd27a', '#ff3d00'], size: 13, duration: 320, arc: 46 });
+      await guard(FX.projectile(from, centerOf(tgt), { color: '#ffb347', trail: ['#ff6a00', '#ffd27a', '#ff3d00'], size: 13, duration: 320, arc: 46 }));
       await runEvents(res.events, {
         onHit: ev => {
           const c = centerOf(ev.uid);
@@ -1040,7 +1053,7 @@
           FX.slash(c.x + c.w * 0.15, c.y, { angle: 195, arc: 150, radius: c.h * 0.5, width: 7, color: '#bae6fd', life: 400, dir: -1 });
           FX.burst(c.x, c.y, { kind: 'spark', count: 24, colors: PAL.steel, speed: [5, 12], life: [200, 450], size: [1.5, 3], len: 2.5, angle: 180, spread: 130 });
           FX.flash('#ffffff', 160, 0.18);
-          await FX.hitstop(ev.crit ? 95 : 55);
+          await guard(FX.hitstop(ev.crit ? 95 : 55));
         }
       });
       await back();
@@ -1055,7 +1068,7 @@
           FX.slash(c.x, c.y, { angle: 135, arc: 70, radius: c.h * 0.55, width: 6, color: '#93c5fd', life: 420, dir: -1 });
           FX.burst(c.x, c.y, { kind: 'shard', count: 14, colors: ['#bfdbfe', '#e0f2fe', '#60a5fa'], speed: [3, 8], life: [400, 800], size: [4, 8], gravity: 0.2, blend: 'source-over', spin: 2 });
           FX.ring(c.x, c.y + c.h * 0.4, { color: '#93c5fd', r1: 90, width: 5, squash: 0.3 });
-          await FX.hitstop(ev.crit ? 90 : 60);
+          await guard(FX.hitstop(ev.crit ? 90 : 60));
         }
       });
       await back();
@@ -1078,8 +1091,8 @@
             FX.ring(c.x, c.y, { color: '#fde68a', r1: 200, width: 10, life: 700 });
             FX.punch(c.x, c.y, 1.12, 520);
             sfx('boom');
-            await FX.hitstop(170);
-          } else await FX.hitstop(35);
+            await guard(FX.hitstop(170));
+          } else await guard(FX.hitstop(35));
         }
       });
       await wait(260);
@@ -1095,7 +1108,7 @@
       sfx('page');
       FX.glyphs(from.x, from.y, { chars: ['註', '文', '書'], count: 5, color: '#c4b5fd', speed: [0.5, 1.5] });
       const to = centerOf(tgt);
-      await Promise.all([0, 1, 2].map(i => wait(i * 70).then(() => FX.projectile(from, { x: to.x + FX.rand(-15, 15), y: to.y + FX.rand(-15, 15) }, { color: '#a78bfa', trail: PAL.ink, size: 8, duration: 300, arc: 30 + i * 25 }))));
+      await guard(Promise.all([0, 1, 2].map(i => wait(i * 70).then(() => FX.projectile(from, { x: to.x + FX.rand(-15, 15), y: to.y + FX.rand(-15, 15) }, { color: '#a78bfa', trail: PAL.ink, size: 8, duration: 300, arc: 30 + i * 25 })))));
       await runEvents(res.events, {
         onHit: ev => {
           const c = centerOf(ev.uid);
@@ -1154,7 +1167,7 @@
           sfx('zap');
           FX.bolt(a.x, a.y, c.x, c.y, { color: '#fde68a', width: 2.4, life: 280 });
           FX.burst(c.x, c.y, { kind: 'spark', count: 16, colors: ['#fde68a', '#ffffff'], speed: [3, 8], life: [150, 350], size: [1, 2], len: 2 });
-          await FX.hitstop(40);
+          await guard(FX.hitstop(40));
         }
       });
       await back();
@@ -1179,7 +1192,7 @@
           sfx('slash');
           FX.slash(c.x - c.w * 0.1, c.y, { angle: 345, arc: 140, radius: c.h * 0.48, width: 6, color: '#f0abfc', life: 380 });
           FX.burst(c.x, c.y, { count: 18, colors: PAL.violet, speed: [2, 7], life: [300, 600], size: [2, 4] });
-          await FX.hitstop(45);
+          await guard(FX.hitstop(45));
         }
       });
       await back();
@@ -1213,7 +1226,7 @@
           FX.ring(c.x, c.y + c.h * 0.4, { color: '#7dd3fc', r1: 140, width: 8, squash: 0.35, life: 600 });
           FX.burst(c.x, c.y + c.h * 0.3, { count: 40, colors: PAL.sea, speed: [3, 9], angle: -90, spread: 120, gravity: 0.3, life: [500, 900], size: [3, 7] });
           FX.shake(10, 380);
-          await FX.hitstop(70);
+          await guard(FX.hitstop(70));
         }
       });
       await back();
@@ -1438,9 +1451,9 @@
     showDetail(null);
     sfx('turn');
     banner(`TURN ${pad2(battle.turn)}`, `ROUND ${battle.waveIndex + 1} · ${WAVES[battle.waveIndex].name}`, 'turn', 900);
-    if (res.ults.length) setTimeout(() => sfx('ultReady'), 400);
+    if (res.ults.length) later(() => sfx('ultReady'), 400);
     const threat = battle.aliveEnemies.find(e => e.intents.some(it => SKILLS[it.skillId].ult));
-    if (threat) setTimeout(() => { sfx('warning'); toast(`${josa(threat.name, '이/가')} 최종 술식을 준비합니다! 보호막과 회복으로 대비하세요.`, 'danger'); }, 600);
+    if (threat) later(() => { sfx('warning'); toast(`${josa(threat.name, '이/가')} 최종 술식을 준비합니다! 보호막과 회복으로 대비하세요.`, 'danger'); }, 600);
     else if (battle.turn === RULES.maxTurn) toast('마지막 턴입니다!', 'danger');
     if (autoOn) runAuto();
   }
@@ -1494,14 +1507,17 @@
     } catch (e) {
       if (!isAbort(e)) console.error(e);
     } finally {
-      autoRunning = false;
-      updateButtons();
+      if (token === gameToken) {
+        autoRunning = false;
+        updateButtons();
+      }
     }
     if (go) executeTurn();
   }
 
+  // 연출 중에 켜도 다음 계획 단계부터 자동으로 진행됩니다.
   function toggleAuto() {
-    if (!battle || busy && battle.phase !== 'executing' && battle.phase !== 'enemy') return;
+    if (!battle || finished) return;
     autoOn = !autoOn;
     sfx('click');
     toast(autoOn ? '자동 전투 켜짐' : '자동 전투 꺼짐');
@@ -1514,6 +1530,7 @@
    * ========================================================= */
   async function finish(victory, turns, reason) {
     busy = true;
+    finished = true;
     autoOn = false;
     updateButtons();
     await wait(victory ? 1100 : 900);
@@ -1564,8 +1581,8 @@
       <div class="rs-btns"><button class="btn primary big" data-act="retry">${victory ? '다시 도전' : '재도전'}</button><button class="btn" data-act="title">타이틀로</button></div>`;
     openModal('result');
     $$('.rs-grid b[data-count]', panel).forEach(b => countUp(b, Number(b.dataset.count)));
-    stars.forEach((s, i) => { if (s.ok) setTimeout(() => sfx('star', { i }), 500 + i * 260); });
-    setTimeout(() => sfx('stamp'), 1350);
+    stars.forEach((s, i) => { if (s.ok) later(() => sfx('star', { i }), 500 + i * 260); });
+    later(() => sfx('stamp'), 1350);
   }
 
   function countUp(el, to) {
@@ -1678,9 +1695,9 @@
   /* =========================================================
    *  게임 시작
    * ========================================================= */
-  async function newGame() {
+  // 진행 중인 연출을 모두 끊고 전장·손패·오버레이를 비웁니다.
+  function teardown() {
     gameToken += 1;
-    const token = gameToken;
     $$('.overlay.show').forEach(closeModal);
     hideTip();
     views.clear();
@@ -1688,15 +1705,22 @@
     R.units.innerHTML = '';
     R.hand.innerHTML = '';
     R.ghosts.innerHTML = '';
+    R.toast.innerHTML = '';
     R.bossBar.classList.add('hidden');
     R.callout.className = '';
     R.combo.className = '';
     R.banner.className = '';
     R.cutscene.className = '';
-    document.body.classList.remove('executing');
+    document.body.classList.remove('executing', 'dragging', 'drop-play');
     selectedUid = null;
     busy = true;
     autoRunning = false;
+    finished = false;
+  }
+
+  async function newGame() {
+    teardown();
+    const token = gameToken;
     battle = new Battle();
     battle.allies.forEach((u, i) => {
       const v = createUnitView(u);
@@ -1719,14 +1743,10 @@
   }
 
   function goTitle() {
-    gameToken += 1;
+    teardown();
     battle = null;
     autoOn = false;
-    $$('.overlay.show').forEach(closeModal);
-    R.units.innerHTML = '';
-    R.hand.innerHTML = '';
-    views.clear();
-    R.bossBar.classList.add('hidden');
+    updateButtons();
     Sound.bgm('calm');
     $('#title').classList.add('show');
   }
@@ -1795,21 +1815,23 @@
         return;
       }
       if (modal || !battle) return;
-      if (/^[1-9]$/.test(e.key)) {
-        const card = battle.hand[Number(e.key) - 1];
+      // 한글 입력 상태에서는 e.key가 'ㅋ' 같은 자모로 오므로, 물리 키(e.code)로 판단합니다.
+      const digit = /^(?:Digit|Numpad)([1-9])$/.exec(e.code);
+      if (digit) {
+        const card = battle.hand[Number(digit[1]) - 1];
         if (card) onCardTap(card.uid);
         return;
       }
-      switch (e.key.toLowerCase()) {
-        case ' ': case 'enter': e.preventDefault(); executeTurn(); break;
-        case 'z': case 'backspace': e.preventDefault(); doUndo(); break;
-        case 'r': doReset(); break;
-        case 'tab': e.preventDefault(); cycleTarget(e.shiftKey ? -1 : 1); break;
-        case 'a': toggleAuto(); break;
-        case 's': R.speed.click(); break;
-        case 'm': R.sound.click(); break;
-        case 'i': openModal('enemy'); break;
-        case 'h': case '?': openModal('help'); break;
+      switch (e.code) {
+        case 'Space': case 'Enter': case 'NumpadEnter': e.preventDefault(); executeTurn(); break;
+        case 'KeyZ': case 'Backspace': e.preventDefault(); doUndo(); break;
+        case 'KeyR': doReset(); break;
+        case 'Tab': e.preventDefault(); cycleTarget(e.shiftKey ? -1 : 1); break;
+        case 'KeyA': toggleAuto(); break;
+        case 'KeyS': R.speed.click(); break;
+        case 'KeyM': R.sound.click(); break;
+        case 'KeyI': openModal('enemy'); break;
+        case 'KeyH': case 'Slash': openModal('help'); break;
         default: break;
       }
     });
@@ -1855,5 +1877,5 @@
   updateButtons();
 
   // 디버깅/테스트용 노출
-  window.__game = { get battle() { return battle; }, newGame, executeTurn, settings, refresh() { renderHand(); renderSlots(); renderAP(); syncAll(); updateButtons(); } };
+  window.__game = { get battle() { return battle; }, newGame, executeTurn, settings, refresh: () => refreshPlanning() };
 })();

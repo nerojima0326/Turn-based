@@ -118,6 +118,7 @@
     const t0 = (when != null ? when : now()) + t;
     const src = ctx.createBufferSource();
     src.buffer = noiseBuf;
+    src.loop = true;
     const env = ctx.createGain();
     env.gain.setValueAtTime(0.0001, t0);
     env.gain.exponentialRampToValueAtTime(g, t0 + a);
@@ -367,7 +368,7 @@
 
   function startBgm(mode) {
     state.mode = mode;
-    if (!ctx) return;
+    if (!ctx || !state.bgmOn) return;
     if (seq && seq.mode === mode) return;
     stopBgm(true);
     seq = { mode, step: 0, next: now() + 0.12, timer: setInterval(schedule, 25) };
@@ -382,6 +383,10 @@
   function configure(o) {
     Object.assign(state, o);
     applyVolumes();
+    // 배경음악이 꺼져 있으면(음소거 포함) 시퀀서를 멈추고, 다시 켜지면 이어서 재생합니다.
+    if (!ctx) return;
+    if (!state.bgmOn) stopBgm(true);
+    else if (state.mode && !seq) startBgm(state.mode);
   }
 
   window.Sound = { init, play, bgm: startBgm, stopBgm, configure, get ready() { return !!ctx; } };
